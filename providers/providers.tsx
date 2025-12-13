@@ -1,0 +1,136 @@
+'use client'
+
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { CookiesProvider, useCookies } from "react-cookie";
+
+const FileContext = createContext<FilesContext | undefined>(undefined);
+const GlobalContext = createContext<GlobalContext | undefined>(undefined);
+const ObjectsContext = createContext<ObjectsContext | undefined>(undefined);
+
+const defaultFiles = {
+    "vertex.glsl": `uniform float u_time;
+void main() {
+  vec4 modelPosition = modelMatrix * vec4(position, 1.0);
+  modelPosition.y += sin(modelPosition.x * 3.0 + u_time) * 0.2;
+
+  // Uncomment the code and hit the refresh button below for a more complex effect.
+  modelPosition.y += sin(modelPosition.z * 3.0 + u_time) * 0.1;
+
+  vec4 viewPosition = viewMatrix * modelPosition;
+  vec4 projectedPosition = projectionMatrix * viewPosition;
+
+  gl_Position = projectedPosition;
+}`,
+    "fragment.glsl": `void main() {
+  gl_FragColor = vec4(0.8, 0.8, 1.0, 1.0);
+}`
+};
+
+export const FileProvider = ({ children }: { children: ReactNode }) => {
+
+    const [cookie] = useCookies(["files"]);
+    const [files, setFiles] = useState<Record<string, string>>(() => {
+        if (!cookie.files) {
+            return defaultFiles;
+        }
+        return cookie.files;
+    });
+
+    const [selectedFile, setSelectedFile] = useState("vertex.glsl");
+    const setFileContent = (name: string, content: string) => {
+        setFiles(prev => ({ ...prev, [name]: content }));
+    };
+    const addFile = (name: string) => {
+        if (files[name]) return false;
+        setFiles(prev => ({ ...prev, [name]: "\n" }));
+        return true;
+    }
+    const deleteFile = (name: string) => {
+        setFiles(prev => {
+            const keys = Object.keys(prev);
+            if (keys.length == 1) return prev;
+            const { [name]: _, ...rest } = prev;
+            const remainingKeys = Object.keys(rest);
+            setSelectedFile(remainingKeys.length ? remainingKeys[remainingKeys.length - 1] : "");
+            return rest;
+        });
+    }
+    return (
+        <FileContext.Provider value={{ files, selectedFile, setSelectedFile, setFileContent, addFile , deleteFile}}>
+            {children}
+        </FileContext.Provider>
+    );
+
+}
+
+export const ObjectsProvider = ({ children }: { children: ReactNode }) => {
+
+    const [objects, setObjects] = useState<Object3D[]>([]);
+
+    useEffect(() => {
+        setObjects([
+            {
+                vertexShader: "vertex.glsl",
+                fragmentShader: "fragment.glsl",
+                objectType: "sphere"
+            }
+        ])
+    }, []);
+
+    return (
+        <ObjectsContext.Provider value={{ objects, setObjects }}>
+            {children}
+        </ObjectsContext.Provider>
+    );
+}
+
+export const GlobalProvider = ({ children }: { children: ReactNode }) => {
+
+    const [live, setLive] = useState<boolean>(true);
+    const [onReloadClicked, setOnReloadClickedState] = useState<() => void>(() => () => { });
+    const setOnReloadClicked = useCallback((onReloadClicked: () => void) => {
+        setOnReloadClickedState(() => onReloadClicked);
+    }, []);
+    const [settings, setSettings] = useState<Settings>({
+        maximizedViewport: false,
+        axesHelper: false
+    });
+    const [shaderError, setShaderError] = useState<string | null>(null);
+
+    return <GlobalContext.Provider value={{ live, setLive, onReloadClicked, setOnReloadClicked, settings, setSettings, shaderError, setShaderError }}>
+        {children}
+    </GlobalContext.Provider>
+}
+
+export const useGlobal = () => {
+    const context = useContext(GlobalContext);
+    if (!context) throw Error("Global context undefined.");
+    return context;
+}
+
+
+export const useFiles = () => {
+    const files = useContext(FileContext);
+    if (!files) throw Error("File context undefined.");
+    return files;
+}
+
+export const useObjects = () => {
+    const objects = useContext(ObjectsContext);
+    if (!objects) throw Error("Objects context undefined.");
+    return objects;
+}
+
+export default function Providers({ children }: { children: React.ReactNode }) {
+    return (
+        <CookiesProvider defaultSetOptions={{ path: "/" }}>
+            <GlobalProvider>
+                <FileProvider>
+                    <ObjectsProvider>
+                        {children}
+                    </ObjectsProvider>
+                </FileProvider>
+            </GlobalProvider>
+        </CookiesProvider>
+    );
+}

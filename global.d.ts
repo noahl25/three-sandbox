@@ -1,0 +1,47 @@
+declare global {
+    type FilesContext = {
+        files: Record<string, string>,
+        selectedFile: string,
+        setSelectedFile: (name: string) => void,
+        setFileContent: (name: string, contents: string) => void,
+        addFile: (name: string) => boolean,
+        deleteFile: (name: string) => void
+    }
+    
+    type ObjectTypes = "plane" | "cube" | "sphere";
+    
+    type Settings = {
+        maximizedViewport: boolean,
+        axesHelper: boolean
+    }
+    
+    type GlobalContext = {
+        live: boolean,
+        setLive: (live: boolean) => void,
+        onReloadClicked: () => void,
+        setOnReloadClicked: (onReloadClicked: () => void) => void,
+        settings: Settings,
+        setSettings: (settings: Settings) => void,
+        shaderError: string | null,
+        setShaderError: (error: string | null) => void
+    }
+
+    type ObjectsContext = {
+        objects: Object3D[],
+        setObjects: (objects: Object3D[]) => void
+    }
+
+    type Object3D = {
+        vertexShader: string,
+        fragmentShader: string,
+        objectType: ObjectTypes,
+        position?: { x: number, y: number, z: number } = { x: 0, y: 0, z: 0 },
+        rotation?: { x: number, y: number, z: number } = { x: 0, y : 0, z: 0 },
+        scale?: number = 1,
+        wireframe?: boolean = false,
+        config?: any = {}
+    }
+
+}
+
+export {}
