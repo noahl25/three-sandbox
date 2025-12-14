@@ -5,7 +5,8 @@ declare global {
         setSelectedFile: (name: string) => void,
         setFileContent: (name: string, contents: string) => void,
         addFile: (name: string) => boolean,
-        deleteFile: (name: string) => void
+        deleteFile: (name: string) => void,
+        renameFile: (file: string, name: string) => void
     }
     
     type ObjectTypes = "plane" | "cube" | "sphere";

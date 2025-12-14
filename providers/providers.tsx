@@ -36,13 +36,18 @@ export const FileProvider = ({ children }: { children: ReactNode }) => {
         return cookie.files;
     });
 
-    const [selectedFile, setSelectedFile] = useState("vertex.glsl");
+    const [selectedFile, setSelectedFile] = useState(Object.keys(files)[0]);
     const setFileContent = (name: string, content: string) => {
         setFiles(prev => ({ ...prev, [name]: content }));
     };
-    const addFile = (name: string) => {
-        if (files[name]) return false;
-        setFiles(prev => ({ ...prev, [name]: "\n" }));
+    const addFile = (baseName: string) => {
+        let name = baseName;
+        let i = 0;
+        while (Object.keys(files).includes(name)) {
+            i++;
+            name = `${baseName.split(".")[0]}${i}.${baseName.split(".").slice(1).join(".")}`;
+        }
+        setFiles(prev => ({ ...prev, [name]: "" }));
         return true;
     }
     const deleteFile = (name: string) => {
@@ -55,8 +60,25 @@ export const FileProvider = ({ children }: { children: ReactNode }) => {
             return rest;
         });
     }
+    const renameFile = (file: string, baseName: string) => {
+        setFiles(prev => {
+            let name = baseName;
+            let i = 0;
+            const keys = Object.keys(prev).filter(k => k !== file);
+            while (keys.includes(name)) {
+                i++;
+                const [first, ...rest] = baseName.split(".");
+                name = `${first}${i}.${rest.join(".")}`;
+            }
+            const { [file]: value, ...rest } = prev;
+            return {
+                ...rest,
+                [name]: value,
+            };
+        });
+    }
     return (
-        <FileContext.Provider value={{ files, selectedFile, setSelectedFile, setFileContent, addFile , deleteFile}}>
+        <FileContext.Provider value={{ files, selectedFile, setSelectedFile, setFileContent, addFile, deleteFile, renameFile }}>
             {children}
         </FileContext.Provider>
     );
@@ -66,9 +88,10 @@ export const FileProvider = ({ children }: { children: ReactNode }) => {
 export const ObjectsProvider = ({ children }: { children: ReactNode }) => {
 
     const [objects, setObjects] = useState<Object3D[]>([]);
+    const [cookie] = useCookies(["objects"]);
 
     useEffect(() => {
-        setObjects([
+        setObjects(cookie.objects || [
             {
                 vertexShader: "vertex.glsl",
                 fragmentShader: "fragment.glsl",

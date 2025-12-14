@@ -82,16 +82,43 @@ const Object3D = ({ object }: { object: Object3D }) => {
 
 
 const FileSelector = ({ name, onClick, selected }: { name: string, onClick: () => void, selected?: boolean }) => {
+
+	const { renameFile } = useFiles();
+	const [renaming, setRenaming] = useState<boolean>(false);
+	const [value, setValue] = useState<string>(name);
+	const divRef = useRef<HTMLDivElement | null>(null);
+
+	const finishRename = () => {
+		renameFile(name, value);
+		setRenaming(false);
+	};
+
 	return (
-		<div onClick={onClick} className={`border-[#0F151C] border-2 rounded-3xl h-full px-4 grid place-items-center hover:bg-white/5 cursor-pointer ${selected ? "bg-white/5" : ""}`}>
-			{name}
-		</div>
+		<>
+			{
+				renaming ? 
+					<input type="text" autoFocus onBlur={() => setRenaming(false)} onChange={e => setValue(e.target.value)} onKeyDown={e => e.key === "Enter" && finishRename()} placeholder={name} className={`focus:outline-none border-[#0F151C] border-2 rounded-3xl h-full px-4 flex justify-start items-center hover:bg-white/5 cursor-pointer ${selected ? "bg-white/5" : ""}`} style={{
+						width: `${divRef.current?.offsetWidth}px`
+					}}>
+				</input>
+					:
+				<div ref={divRef} onClick={onClick} onDoubleClick={() => setRenaming(true)} className={`border-[#0F151C] border-2 rounded-3xl h-full px-4 grid place-items-center hover:bg-white/5 cursor-pointer ${selected ? "bg-white/5" : ""}`}>
+					{name}
+				</div>
+			}
+		</>
 	);
 }
 
 const Files = () => {
 
 	const { files, selectedFile, setSelectedFile, addFile } = useFiles();
+	const [mounted, setMounted] = useState(false);
+
+	useEffect(() => {
+		setMounted(true);
+	}, []);
+	if (!mounted) return null;
 	
 	return (
 		<>
@@ -100,7 +127,7 @@ const Files = () => {
 					<FileSelector key={name} name={name} onClick={() => setSelectedFile(name)} selected={name == selectedFile} />
 				))
 			}
-			<div onClick={() => addFile("balls.glsl")} className="p-1 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300">
+			<div onClick={() => addFile("file.glsl")} className="p-1 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300">
 				<Plus size={20}/>
 			</div>
 		</>
@@ -314,6 +341,7 @@ const Dropdown = ({ placeholder, options, onClickOption }: { placeholder: string
 
 	const [selected, setSelected] = useState<boolean>(false);
 	const [shownPlaceholder, setShownPlaceholder] = useState<string>(placeholder);
+	const { files } = useFiles();
 
 	const handleClick = (value: string) => {
 		setShownPlaceholder(value);
@@ -321,11 +349,11 @@ const Dropdown = ({ placeholder, options, onClickOption }: { placeholder: string
 	}
 
 	return (
-		<div onClick={() => setSelected(prev => !prev)} className="bg-gray-800/10  border-3 relative -translate-x-[3px] border-[#0F151C] rounded-xl h-[35px] w-full relative flex justify-start items-center pl-2 cursor-pointer">
+		<div onClick={() => setSelected(prev => !prev)} className={`${!Object.keys(files).includes(shownPlaceholder) ? "bg-red-500/10" : "bg-gray-800/10"}  border-3 relative -translate-x-[3px] border-[#0F151C] rounded-xl h-[35px] w-full relative flex justify-start items-center pl-2 cursor-pointer`}>
 			<p className="">{shownPlaceholder}</p>
 			<motion.div
 				animate={{ rotate: selected ? 180 : 0}}
-				className="absolute right-1 top-1/2 -translate-y-1/2 z-20" 
+				className={"absolute right-1 top-1/2 -translate-y-1/2 z-20"}
 			>
 				<ChevronDown color="#243242ff" size={20}/>
 			</motion.div>
@@ -358,7 +386,12 @@ const Dropdown = ({ placeholder, options, onClickOption }: { placeholder: string
 const Config = () => {
 
 	const { objects, setObjects } = useObjects();
+	const [cookie, setCookie] = useCookies(["objects"]);
 	const { files } = useFiles();
+
+	useEffect(() => {
+		setCookie("objects", JSON.stringify(objects));
+	}, [objects]);
 
 	return (
 		<div className="w-full h-full px-4 py-3">
