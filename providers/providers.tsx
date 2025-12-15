@@ -1,5 +1,6 @@
 'use client'
 
+import { createObject3D } from "@/lib/utils";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { CookiesProvider, useCookies } from "react-cookie";
 
@@ -71,6 +72,7 @@ export const FileProvider = ({ children }: { children: ReactNode }) => {
                 name = `${first}${i}.${rest.join(".")}`;
             }
             const { [file]: value, ...rest } = prev;
+            setSelectedFile(name);
             return {
                 ...rest,
                 [name]: value,
@@ -92,11 +94,11 @@ export const ObjectsProvider = ({ children }: { children: ReactNode }) => {
 
     useEffect(() => {
         setObjects(cookie.objects || [
-            {
+            createObject3D({
                 vertexShader: "vertex.glsl",
                 fragmentShader: "fragment.glsl",
                 objectType: "sphere"
-            }
+            })
         ])
     }, []);
 

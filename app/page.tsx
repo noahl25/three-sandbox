@@ -7,11 +7,12 @@ import { cloneElement, createContext, useCallback, useContext, useEffect, useLay
 import { EditorView } from "@codemirror/view";
 import * as THREE from "three";
 import debounce from "lodash.debounce"
-import { ArrowLeft, Axis3D, Box, ChevronDown, Circle, Fullscreen, Plus, RotateCcw, Settings, Square, Trash } from "lucide-react";
+import { ArrowLeft, Axis3D, Box, ChevronDown, Circle, Fullscreen, Lock, LockOpen, Plus, RotateCcw, Settings, Square, Trash } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useCookies } from 'react-cookie';
 import { useFiles, useGlobal, useObjects } from "@/providers/providers";
 import { truncate } from "node:fs/promises";
+import { lerp } from "@/lib/utils";
 
 const Object3D = ({ object }: { object: Object3D }) => {
 	const { files } = useFiles();
@@ -28,43 +29,25 @@ const Object3D = ({ object }: { object: Object3D }) => {
 		u_hovered: { value: hover.current }
 	}), []);
 
-	useFrame((state) => {
+	useFrame((state, delta) => {
 		const { clock } = state;
 		if (mesh.current) {
 			(mesh.current.material as any).uniforms.u_time.value = clock.getElapsedTime();
-			(mesh.current.material as any).uniforms.u_hovered.value = hover.current;
+			(mesh.current.material as any).uniforms.u_hovered.value = lerp((mesh.current.material as any).uniforms.u_hovered.value, hover.current ? 1 : 0, delta * 3);
 		}
 	});
 
-	useEffect(() => {
-
-		setShaderError(null);
-		const originalError = console.error;
-
-		console.error = (msg, ...rest) => {
-			if (typeof msg === "string" && msg.includes("THREE")) {
-				setShaderError(msg);
-			}
-			originalError(msg, ...rest);
-		};
-
-		setTimeout(() => {
-			console.error = originalError;
-		}, 100);
-
-	}, [files]);
-
 	const geometry: Record<ObjectTypes, ReactElement<any>> = {
-		cube: <boxGeometry />,
-		plane: <planeGeometry args={[1, 1, 16, 16]} />,
-		sphere: <icosahedronGeometry args={[0.5, 5]} />
+		cube: <boxGeometry args={[1, 1, 1, object.subdivisions, object.subdivisions, object.subdivisions]}/>,
+		plane: <planeGeometry args={[1, 1, object.subdivisions, object.subdivisions]} />,
+		sphere: <icosahedronGeometry args={[0.5, object.subdivisions]} />
 	}
 
 	return (
 		<mesh ref={mesh} 
-			position={[0, 0, 0]} 
-			rotation={[-Math.PI / 2, 0, 0]} 
-			scale={1.5} 
+			position={[object.position.x, object.position.y, object.position.z]} 
+			rotation={[object.rotation.x * Math.PI / 180, object.rotation.y * Math.PI / 180, object.rotation.z * Math.PI / 180]} 
+			scale={[object.scale.x, object.scale.y, object.scale.z]} 
 			key={`${fragmentShader}-${vertexShader}`}
 			onPointerOver={() => hover.current = 1.0}
 			onPointerLeave={() => hover.current = 0.0}
@@ -211,7 +194,7 @@ const Editor = () => {
 	}, [selectedFile, setFileContent, content, setOnReloadClicked]);
 
 	const saveFilesToCookie = useMemo(() => debounce(() => {
-		setCookie("files", JSON.stringify(files));
+		setCookie("files", JSON.stringify(files), { maxAge: 60 * 60 * 24 * 30  });
 	}, 1000), [files]);
 
 	useEffect(() => {
@@ -279,23 +262,6 @@ const UIButton = ({ onClick, icon }: { onClick: () => void, icon: ReactElement<a
 	);
 }
 
-
-const ShaderError = () => {
-
-	const { shaderError } = useGlobal();
-
-	if (shaderError) {
-		return (
-			<div className="absolute bottom-1 px-4 py-3 left-1 rounded-2xl right-1 h-[20%] bg-[#080B0F] text-[#6B7280]">
-				<div className="whitespace-pre-wrap scrollbar overflow-y-scroll h-full">
-					{shaderError}
-				</div>
-			</div>
-		);
-	}
-
-}
-
 const ObjectPicker = ({ object }: { object: Object3D }) => {
 
 	const [hovering, setHovering] = useState<boolean>(false);
@@ -337,7 +303,7 @@ const ObjectPicker = ({ object }: { object: Object3D }) => {
 	);
 }
 
-const Dropdown = ({ placeholder, options, onClickOption }: { placeholder: string, options: string[], onClickOption: (option: string) => void }) => {
+const Dropdown = ({ placeholder, options, onClickOption, specific = true }: { placeholder: string, options: string[], onClickOption: (option: string) => void, specific?: boolean }) => {
 
 	const [selected, setSelected] = useState<boolean>(false);
 	const [shownPlaceholder, setShownPlaceholder] = useState<string>(placeholder);
@@ -349,7 +315,7 @@ const Dropdown = ({ placeholder, options, onClickOption }: { placeholder: string
 	}
 
 	return (
-		<div onClick={() => setSelected(prev => !prev)} className={`${!Object.keys(files).includes(shownPlaceholder) ? "bg-red-500/10" : "bg-gray-800/10"}  border-3 relative -translate-x-[3px] border-[#0F151C] rounded-xl h-[35px] w-full relative flex justify-start items-center pl-2 cursor-pointer`}>
+		<div onClick={() => setSelected(prev => !prev)} className={`${specific && !Object.keys(files).includes(shownPlaceholder) ? "bg-red-500/10" : "bg-gray-800/10"}  border-3 relative -translate-x-[3px] border-[#0F151C] rounded-xl h-[35px] ${specific ? "w-full" : "w-[200px]"} relative flex justify-start items-center pl-2 cursor-pointer z-30`}>
 			<p className="">{shownPlaceholder}</p>
 			<motion.div
 				animate={{ rotate: selected ? 180 : 0}}
@@ -365,7 +331,7 @@ const Dropdown = ({ placeholder, options, onClickOption }: { placeholder: string
 					exit={{ opacity: 0, scale: 0.9 }} 
 					animate={{ opacity: 1, scale: 1 }} 
 					transition={{ type: "tween", ease: "easeInOut", duration: 0.3 }} 
-					className="translate-y-[5px] absolute flex flex-col justify-start p-1 items-start origin-top top-full rounded-xl left-0 w-full max-h-[100px] bg-[#0B0F14] border-3 border-[#0F151C] z-30"
+					className="translate-y-[5px] absolute flex flex-col justify-start p-1 items-start origin-top top-full rounded-xl left-0 w-full max-h-[100px] bg-[#0B0F14FF] z-100 border-3 border-[#0F151C] z-30"
 				>
 					<div className=" overflow-y-scroll scrollbar w-full h-full">
 						{
@@ -383,23 +349,91 @@ const Dropdown = ({ placeholder, options, onClickOption }: { placeholder: string
 	);
 }
 
+const NumberInput = ({ initial, handleChange }: { initial: number, handleChange: (num: number) => void }) => {
+
+	const [current, setCurrent] = useState<string>(String(initial));
+
+	useEffect(() => {
+		if (Number(current) !== initial) {
+			setCurrent(String(initial));
+		}
+	}, [initial]);
+
+	const onChange = (e: any) => {
+		const value = e.target.value;
+		if (!/^-?\d*\.?\d*$/.test(value) || (value.split('.').length > 2)) return;
+		setCurrent(value);
+		const num = Number(value);
+		if (!Number.isNaN(num)) {
+			handleChange(num);
+		}
+	}
+
+	return (
+		<div className="bg-gray-800/10 border-3 relative border-[#0F151C] rounded-xl h-[35px] w-full relative flex justify-start items-center px-2 cursor-pointer">
+			<input type="text" value={current} onChange={onChange} className="w-full active:outline-none focus:outline-none"></input>
+		</div>
+	);	
+}
+
+const BooleanRadio = ({ name, onChange, initial }: { name: string, onChange: (state: boolean) => void, initial: boolean}) => {
+
+	const [checked, setChecked] = useState<boolean>(initial);
+
+	const handleClick = () => {
+		setChecked(prev => !prev);
+		onChange(!checked);
+	}
+
+	return (
+		<div className="flex gap-2 justify-start items-center">
+			<span>{name}</span>
+			<div onClick={handleClick} className="size-6 cursor-pointer rounded-full bg-gray-800/10 border-3 border-[#0F151C] relative translate-y-[0.5px]">
+				{
+					checked && <div className="bg-gray-800/50 size-3 rounded-full absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"/>
+				}
+			</div>
+		</div>
+	);
+}
+
 const Config = () => {
 
 	const { objects, setObjects } = useObjects();
 	const [cookie, setCookie] = useCookies(["objects"]);
 	const { files } = useFiles();
+	const [scaleLocked, setScaleLocked] = useState<boolean>(false);
 
 	useEffect(() => {
-		setCookie("objects", JSON.stringify(objects));
+		setCookie("objects", JSON.stringify(objects), { maxAge: 60 * 60 * 24 * 30 });
 	}, [objects]);
+
+	const updateAttribute = (type: "position" | "rotation" | "scale", comp: "x" | "y" | "z", newVal: number, key: number) => {
+		setObjects(
+			objects.map((object, id) => (
+				id === key ? { ...object, [type]: { ...object[type], [comp]: newVal } } : object
+			))
+		);
+	}
 
 	return (
 		<div className="w-full h-full px-4 py-3">
 			{
 				objects.map((item, key) => (
 					<div className="w-full text-gray-300/80 border-b-2 pb-3 border-[#0F151C]" key={key}>
-						<p className="text-xl mb-1">Object #{key + 1} - {item.objectType}</p>
-						<div className="w-full flex text-sm gap-3 items-center justify-start">
+						<div className="flex gap-3 z-1000 mb-3">
+							<p className="text-xl mb-2">Object #{key + 1} - </p>
+							<div className="relative -translate-y-[2px] text-sm z-100000000">
+								<Dropdown placeholder={item.objectType} specific={false} options={["plane", "cube", "sphere"]} onClickOption={(option: string) => {
+									setObjects(
+										objects.map((object, id) =>
+											id === key ? { ...object, objectType: option as ObjectTypes } : object
+										)
+									);
+								}}/>
+							</div>
+						</div>
+						<div className="w-full flex text-sm gap-3 items-center justify-start mb-2">
 							<div className="w-full flex flex-col gap-1 items-start justify-center">
 								<span>Vertex Shader</span>
 								<Dropdown 
@@ -427,6 +461,74 @@ const Config = () => {
 										);
 									}}
 								/>
+							</div>
+						</div>
+						<div className="w-full text-sm flex flex-col items-start justify-center gap-1 mb-2">
+							<span>Position</span>
+							<div className="flex justify-start items-center gap-3 w-full">
+								<NumberInput initial={item.position.x} handleChange={(num: number) => updateAttribute("position", "x", num, key)}/>
+								<NumberInput initial={item.position.y} handleChange={(num: number) => updateAttribute("position", "y", num, key)} />
+								<NumberInput initial={item.position.z} handleChange={(num: number) => updateAttribute("position", "z", num, key)} />
+							</div>
+						</div>
+						<div className="w-full text-sm flex flex-col items-start justify-center gap-1 mb-2">
+							<span>Rotation</span>
+							<div className="flex justify-start items-center gap-3 w-full">
+								<NumberInput initial={item.rotation.x} handleChange={(num: number) => updateAttribute("rotation", "x", num, key)} />
+								<NumberInput initial={item.rotation.y} handleChange={(num: number) => updateAttribute("rotation", "y", num, key)} />
+								<NumberInput initial={item.rotation.z} handleChange={(num: number) => updateAttribute("rotation", "z", num, key)} />
+							</div>
+						</div>
+						<div className="w-full text-sm flex flex-col items-start justify-center gap-1 mb-5">
+							<div className="flex gap-2 justify-start items-center">
+								<span>Scale</span>
+								<div
+									onClick={() => setScaleLocked((prev) => !prev)}
+									className="p-1 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300"
+								>
+									{scaleLocked ? <Lock size={15} /> : <LockOpen size={15} />}
+								</div>
+							</div>
+							<div className="flex justify-start items-center gap-3 w-full">
+								{["x", "y", "z"].map((axis, i) => (
+									<NumberInput
+										key={axis}
+										initial={item.scale[axis as "x" | "y" | "z"]}
+										handleChange={(num: number) => {
+											setObjects(
+												objects.map((object, id) => {
+													if (id !== key) return object;
+													if (scaleLocked) {
+														return { ...object, scale: { x: num, y: num, z: num } };
+													} else {
+														return { ...object, scale: { ...object.scale, [axis]: num } };
+													}
+												})
+											);
+										}}
+									/>
+								))}
+							</div>
+						</div>
+						<div className="w-full text-md flex flex-col items-start justify-center gap-2 mb-2">
+							<BooleanRadio name="Wireframe" initial={item.wireframe} onChange={(state: boolean) => {
+								setObjects(
+									objects.map((object, id) => {
+										if (id !== key) return object;
+										return { ...object, wireframe: state }
+									})
+								)
+							}}/>
+							<div className="flex gap-2 items-center">
+								<span>Subdivisions</span>
+								<NumberInput initial={item.subdivisions} handleChange={(num: number) => {
+									setObjects(
+										objects.map((object, id) => {
+											if (id !== key) return object;
+											return { ...object, subdivisions: num }
+										})
+									)
+								}}/>
 							</div>
 						</div>
 					</div>
@@ -518,7 +620,6 @@ export default function Page() {
 								</>
 							}
 						</div>
-						<ShaderError />
 					</div>
 			}
 		</motion.div>

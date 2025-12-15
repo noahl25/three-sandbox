@@ -36,11 +36,12 @@ declare global {
         vertexShader: string,
         fragmentShader: string,
         objectType: ObjectTypes,
-        position?: { x: number, y: number, z: number } = { x: 0, y: 0, z: 0 },
-        rotation?: { x: number, y: number, z: number } = { x: 0, y : 0, z: 0 },
-        scale?: number = 1,
-        wireframe?: boolean = false,
-        config?: any = {}
+        position: { x: number, y: number, z: number },
+        rotation: { x: number, y: number, z: number },
+        scale: { x: number, y: number, z: number },
+        wireframe: boolean = false,
+        subdivisions: number,
+        config: any = {}
     }
 
 }
