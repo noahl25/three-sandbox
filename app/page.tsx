@@ -8,46 +8,58 @@ import { EditorView } from "@codemirror/view";
 import * as THREE from "three";
 import debounce from "lodash.debounce"
 import { ArrowLeft, Axis3D, Box, ChevronDown, Circle, Fullscreen, Lock, LockOpen, Plus, RotateCcw, Settings, Square, Trash } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useMotionValue, useSpring } from "motion/react";
 import { useCookies } from 'react-cookie';
 import { useFiles, useGlobal, useObjects } from "@/providers/providers";
-import { truncate } from "node:fs/promises";
-import { lerp } from "@/lib/utils";
+import { clamp, mapRange, threeCullingToString } from "@/lib/utils";
+import { createObject3D, lerp } from "@/lib/utils";
 
 const Object3D = ({ object }: { object: Object3D }) => {
 	const { files } = useFiles();
-	const { settings, setShaderError } = useGlobal();
-	const vertexShader = files[object.vertexShader];
-	const fragmentShader = files[object.fragmentShader];
+	const processShader = (shader: string) => {
+		if (shader.startsWith("//using")) {
+			const includes = shader.slice(8, shader.indexOf("\n")).split(" ");
+			for (const include of includes.reverse()) {
+				const file = files[include];
+				shader = (file || "") + shader;
+			}
+		}
+		return shader;
+	}
+	const vertexShader = processShader(files[object.vertexShader]);
+	const fragmentShader = processShader(files[object.fragmentShader]);
 
 	const mesh = useRef<THREE.Mesh>(null);
 	const hover = useRef<number>(0.0);
-	
+	const mousePosition = useRef<{ x: number, y: number }>({ x: 0.0, y: 0.0 });
 
 	const uniforms = useMemo(() => ({
 		u_time: { value: 0.0 },
-		u_hovered: { value: hover.current }
+		u_hovered: { value: hover.current },
+		u_mouse: { value: new THREE.Vector2(0, 0) }
 	}), []);
 
 	useFrame((state, delta) => {
 		const { clock } = state;
 		if (mesh.current) {
+			const cur = mousePosition.current;
 			(mesh.current.material as any).uniforms.u_time.value = clock.getElapsedTime();
 			(mesh.current.material as any).uniforms.u_hovered.value = lerp((mesh.current.material as any).uniforms.u_hovered.value, hover.current ? 1 : 0, delta * 3);
+			(mesh.current.material as any).uniforms.u_mouse.value = new THREE.Vector2(state.pointer.x, state.pointer.y);
 		}
 	});
 
 	const geometry: Record<ObjectTypes, ReactElement<any>> = {
-		cube: <boxGeometry args={[1, 1, 1, object.subdivisions, object.subdivisions, object.subdivisions]}/>,
+		cube: <boxGeometry args={[1, 1, 1, object.subdivisions, object.subdivisions, object.subdivisions]} />,
 		plane: <planeGeometry args={[1, 1, object.subdivisions, object.subdivisions]} />,
 		sphere: <icosahedronGeometry args={[0.5, object.subdivisions]} />
 	}
 
 	return (
-		<mesh ref={mesh} 
-			position={[object.position.x, object.position.y, object.position.z]} 
-			rotation={[object.rotation.x * Math.PI / 180, object.rotation.y * Math.PI / 180, object.rotation.z * Math.PI / 180]} 
-			scale={[object.scale.x, object.scale.y, object.scale.z]} 
+		<mesh ref={mesh}
+			position={[object.position.x, object.position.y, object.position.z]}
+			rotation={[object.rotation.x * Math.PI / 180, object.rotation.y * Math.PI / 180, object.rotation.z * Math.PI / 180]}
+			scale={[object.scale.x, object.scale.y, object.scale.z]}
 			key={`${fragmentShader}-${vertexShader}`}
 			onPointerOver={() => hover.current = 1.0}
 			onPointerLeave={() => hover.current = 0.0}
@@ -58,6 +70,7 @@ const Object3D = ({ object }: { object: Object3D }) => {
 				fragmentShader={fragmentShader}
 				wireframe={object.wireframe}
 				uniforms={uniforms}
+				side={object.culling as 0 | 1 | 2}
 			/>
 		</mesh>
 	);
@@ -106,9 +119,10 @@ const Files = () => {
 	return (
 		<>
 			{
-				Object.keys(files).map((name: string) => (
-					<FileSelector key={name} name={name} onClick={() => setSelectedFile(name)} selected={name == selectedFile} />
-				))
+				Object.keys(files).map((name: string) => {	
+					if (name === "") return null;
+					return <FileSelector key={name} name={name} onClick={() => setSelectedFile(name)} selected={name == selectedFile} />
+				})
 			}
 			<div onClick={() => addFile("file.glsl")} className="p-1 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300">
 				<Plus size={20}/>
@@ -176,7 +190,6 @@ const Editor = () => {
 	const { files, selectedFile, setFileContent } = useFiles();
 	const [content, setContent] = useState<string>(files[selectedFile]);
 	const { setOnReloadClicked, live } = useGlobal();
-	const [cookie, setCookie] = useCookies(["files"]);
 
 	const debounceChange = useMemo(() => (
 		debounce((content: string) => {
@@ -192,14 +205,6 @@ const Editor = () => {
 	useEffect(() => {
 		setOnReloadClicked(() => setFileContent(selectedFile, content));
 	}, [selectedFile, setFileContent, content, setOnReloadClicked]);
-
-	const saveFilesToCookie = useMemo(() => debounce(() => {
-		setCookie("files", JSON.stringify(files), { maxAge: 60 * 60 * 24 * 30  });
-	}, 1000), [files]);
-
-	useEffect(() => {
-		saveFilesToCookie();
-	}, [files]);
 
 	return (
 		<CodeMirror
@@ -303,7 +308,7 @@ const ObjectPicker = ({ object }: { object: Object3D }) => {
 	);
 }
 
-const Dropdown = ({ placeholder, options, onClickOption, specific = true }: { placeholder: string, options: string[], onClickOption: (option: string) => void, specific?: boolean }) => {
+const Dropdown = ({ placeholder, options, onClickOption, specific = true, fullWidth = false }: { placeholder: string, options: string[], onClickOption: (option: string) => void, specific?: boolean, fullWidth?: boolean }) => {
 
 	const [selected, setSelected] = useState<boolean>(false);
 	const [shownPlaceholder, setShownPlaceholder] = useState<string>(placeholder);
@@ -315,7 +320,7 @@ const Dropdown = ({ placeholder, options, onClickOption, specific = true }: { pl
 	}
 
 	return (
-		<div onClick={() => setSelected(prev => !prev)} className={`${specific && !Object.keys(files).includes(shownPlaceholder) ? "bg-red-500/10" : "bg-gray-800/10"}  border-3 relative -translate-x-[3px] border-[#0F151C] rounded-xl h-[35px] ${specific ? "w-full" : "w-[200px]"} relative flex justify-start items-center pl-2 cursor-pointer z-30`}>
+		<div onClick={() => setSelected(prev => !prev)} className={`${specific && !Object.keys(files).includes(shownPlaceholder) ? "bg-red-500/10" : "bg-gray-800/10"}  border-3 relative ${specific ? "-translate-x-[3px]" : ""} border-[#0F151C] rounded-xl h-[35px] ${specific || fullWidth ? "w-full" : "w-[200px]"} relative flex justify-start items-center pl-2 cursor-pointer z-30`}>
 			<p className="">{shownPlaceholder}</p>
 			<motion.div
 				animate={{ rotate: selected ? 180 : 0}}
@@ -386,8 +391,8 @@ const BooleanRadio = ({ name, onChange, initial }: { name: string, onChange: (st
 	}
 
 	return (
-		<div className="flex gap-2 justify-start items-center">
-			<span>{name}</span>
+		<div className="flex gap-2 justify-start items-center w-full col-span-2">
+			<span className="mr-auto">{name}</span>
 			<div onClick={handleClick} className="size-6 cursor-pointer rounded-full bg-gray-800/10 border-3 border-[#0F151C] relative translate-y-[0.5px]">
 				{
 					checked && <div className="bg-gray-800/50 size-3 rounded-full absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"/>
@@ -417,11 +422,11 @@ const Config = () => {
 	}
 
 	return (
-		<div className="w-full h-full px-4 py-3">
+		<div className="w-full h-full px-4 py-3 pb-5">
 			{
 				objects.map((item, key) => (
-					<div className="w-full text-gray-300/80 border-b-2 pb-3 border-[#0F151C]" key={key}>
-						<div className="flex gap-3 z-1000 mb-3">
+					<div className="relative w-full text-gray-300/80 border-b-2 pb-3 border-[#0F151C] mb-5" key={key}>
+						<div className="flex gap-3 items-center justify-start z-1000 mb-3">
 							<p className="text-xl mb-2">Object #{key + 1} - </p>
 							<div className="relative -translate-y-[2px] text-sm z-100000000">
 								<Dropdown placeholder={item.objectType} specific={false} options={["plane", "cube", "sphere"]} onClickOption={(option: string) => {
@@ -432,13 +437,20 @@ const Config = () => {
 									);
 								}}/>
 							</div>
+							<div className="p-2 border-[#0F151C] -translate-y-[2.25px] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300" onClick={() => {
+								setObjects(
+									objects.filter((_) => _.uuid !== item.uuid)
+								);
+							}}>
+								<Trash size={20} />
+							</div>
 						</div>
 						<div className="w-full flex text-sm gap-3 items-center justify-start mb-2">
 							<div className="w-full flex flex-col gap-1 items-start justify-center">
 								<span>Vertex Shader</span>
 								<Dropdown 
 									placeholder={item.vertexShader} 
-									options={Object.keys(files)} 
+									options={Object.keys(files).filter(Boolean)} 
 									onClickOption={(option: string) => {
 										setObjects(
 											objects.map((object, id) =>
@@ -452,7 +464,7 @@ const Config = () => {
 								<span>Fragment Shader</span>
 								<Dropdown 
 									placeholder={item.fragmentShader} 
-									options={Object.keys(files)} 
+									options={Object.keys(files).filter(Boolean)} 
 									onClickOption={(option: string) => {
 										setObjects(
 											objects.map((object, id) =>
@@ -510,7 +522,31 @@ const Config = () => {
 								))}
 							</div>
 						</div>
-						<div className="w-full text-md flex flex-col items-start justify-center gap-2 mb-2">
+						<div className="text-md grid grid-cols-2 gap-3">
+							<span className="">Subdivisions</span>
+							<NumberInput initial={item.subdivisions} handleChange={(num: number) => {
+								setObjects(
+									objects.map((object, id) => {
+										if (id !== key) return object;
+										return { ...object, subdivisions: num }
+									})
+								)
+							}}/>
+							<span>Culling</span>
+							<Dropdown
+								placeholder={threeCullingToString(item.culling)}
+								options={["Back Side", "Front Side", "None"]}
+								onClickOption={(option: string) => {
+									setObjects(
+										objects.map((object, id) => {
+											if (id !== key) return object;
+											return { ...object, culling: option === "Back Side" ? 0 : option === "None" ? 2 : 1 }
+										})
+									)
+								}}
+								specific={false}
+								fullWidth={true}
+							/>
 							<BooleanRadio name="Wireframe" initial={item.wireframe} onChange={(state: boolean) => {
 								setObjects(
 									objects.map((object, id) => {
@@ -519,28 +555,71 @@ const Config = () => {
 									})
 								)
 							}}/>
-							<div className="flex gap-2 items-center">
-								<span>Subdivisions</span>
-								<NumberInput initial={item.subdivisions} handleChange={(num: number) => {
-									setObjects(
-										objects.map((object, id) => {
-											if (id !== key) return object;
-											return { ...object, subdivisions: num }
-										})
-									)
-								}}/>
-							</div>
+							
 						</div>
 					</div>
 				))
 			}
+			<div className="w-full flex justify-center items-center mt-5">
+				<div className="p-1 mb-5 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300" onClick={() => {
+					setObjects(
+						[
+							...objects,
+							createObject3D({
+								vertexShader: "vertex.glsl",
+								fragmentShader: "fragment.glsl",
+								objectType: "sphere"
+							})
+						]
+					);
+				}}>
+					<Plus size={25} />
+				</div>
+			</div>
 		</div>
+	);
+}
+
+const Slider = ({ value, onChange }: { value: number, onChange: (num: number) => void }) => {
+
+	const bottom = useMotionValue(value);
+	const bottomSpring = useSpring(bottom);
+	const [dragging, setDragging] = useState(false);
+
+	const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+		setDragging(true);
+		e.currentTarget.setPointerCapture(e.pointerId);
+	};
+
+	const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+		if (!dragging) return;
+		const deltaY = -e.movementY;
+		bottom.set(clamp(bottom.get() + deltaY, 0, 68));
+		onChange(clamp(mapRange(bottom.get() + deltaY, [0, 68], [1, 10]), 1, 10));
+	};
+
+	const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+		setDragging(false);
+		e.currentTarget.releasePointerCapture(e.pointerId);
+	};
+
+	return (
+		<motion.div className="w-2 h-20 bg-[#0B0F14] rounded-full mx-auto relative">
+			<motion.div
+				className="absolute w-[17px] h-[17px] bg-[#0F151C] hover:bg-[#17212cff] transition-colors duration-300 rounded-full left-1/2 -translate-x-1/2"
+				style={{ bottom: bottomSpring }}
+				onPointerDown={handlePointerDown}
+				onPointerMove={handlePointerMove}
+				onPointerUp={handlePointerUp}
+				onPointerLeave={handlePointerUp}
+			/>
+		</motion.div>
 	);
 }
 
 export default function Page() {
 
-	const { settings, setSettings } = useGlobal();
+	const { settings, setSettings, axisLength, setAxisLength } = useGlobal();
 	const { objects, setObjects } = useObjects();
 	const { selectedFile, deleteFile } = useFiles();
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -550,6 +629,12 @@ export default function Page() {
 		window.dispatchEvent(new Event("resize"));
 	}, [settings.maximizedViewport]);
 
+	const variants = {
+		hover: {
+			height: 145
+		}
+	}
+
 	return (
 		<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1, ease: "easeInOut" }} className={`h-screen w-full overflow-hidden grid ${settings.maximizedViewport ? "landscape:grid-cols-[0fr_1fr] portrait:grid-rows-[0fr_1fr]" : "landscape:grid-cols-2 portrait:grid-rows-2"}  p-2 gap-1 bg-[#080B0F]`}>
 			<div className={`min-w-0 w-full relative order-1`}>
@@ -557,10 +642,22 @@ export default function Page() {
 					<Live />
 					<Reload />
 				</div>
-				<div className="absolute bottom-2 left-2 z-10 flex gap-1">
+				<motion.div className="absolute bottom-2 left-2 z-10 flex gap-1" whileHover="hover">
 					<UIButton onClick={() => setSettings({ ...settings, axesHelper: !settings.axesHelper })} icon={<Axis3D />} />
-				</div>
-				<div className="absolute top-2 right-2 z-10">
+					<motion.div
+						className="absolute bottom-0 w-full pt-5 overflow-hidden"
+						initial={{
+							height: 0
+						}}
+						transition={{
+							duration: 0.7
+						}}
+						variants={variants}
+					>
+						<Slider value={axisLength} onChange={(num: number) => { setAxisLength(num) }}/>
+					</motion.div>
+				</motion.div>
+				<div className="absolute top-2 right-2 z-10 overflow-hidden">
 					<UIButton onClick={() => setSettings({ ...settings, maximizedViewport: !settings.maximizedViewport })} icon={<Fullscreen />} />
 				</div>
 				<Canvas 
@@ -573,7 +670,7 @@ export default function Page() {
 							<Object3D object={item} key={key}/>
 						))
 					}
-					{settings.axesHelper && <axesHelper args={[1.5]} />}
+					{settings.axesHelper && <axesHelper args={[axisLength]} />}
 					<OrbitControls />
 				</Canvas>
 			</div>

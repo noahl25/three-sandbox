@@ -29,15 +29,29 @@ void main() {
 
 export const FileProvider = ({ children }: { children: ReactNode }) => {
 
-    const [cookie] = useCookies(["files"]);
-    const [files, setFiles] = useState<Record<string, string>>(() => {
-        if (!cookie.files) {
-            return defaultFiles;
-        }
-        return cookie.files;
-    });
+    const [selectedFile, setSelectedFile] = useState("");
+    const [files, setFiles] = useState<Record<string, string>>(defaultFiles);
 
-    const [selectedFile, setSelectedFile] = useState(Object.keys(files)[0]);
+    useEffect(() => {
+        const saved = window.localStorage.getItem("files");
+        if (!saved) return;
+
+        const parsed = JSON.parse(saved);
+
+        setFiles(parsed);
+        setSelectedFile(Object.keys(parsed)[0]);
+    }, []);
+
+    useEffect(() => {
+        window.localStorage.setItem("files", JSON.stringify(files));
+    }, [files]);
+
+    useEffect(() => {
+        if (selectedFile) return;
+        const keys = Object.keys(files);
+        if (keys.length) setSelectedFile(keys[0]);
+    }, [files, selectedFile]);
+
     const setFileContent = (name: string, content: string) => {
         setFiles(prev => ({ ...prev, [name]: content }));
     };
@@ -121,8 +135,9 @@ export const GlobalProvider = ({ children }: { children: ReactNode }) => {
         axesHelper: false
     });
     const [shaderError, setShaderError] = useState<string | null>(null);
+    const [axisLength, setAxisLength] = useState<number>(1);
 
-    return <GlobalContext.Provider value={{ live, setLive, onReloadClicked, setOnReloadClicked, settings, setSettings, shaderError, setShaderError }}>
+    return <GlobalContext.Provider value={{ live, setLive, onReloadClicked, setOnReloadClicked, settings, setSettings, shaderError, setShaderError, axisLength, setAxisLength }}>
         {children}
     </GlobalContext.Provider>
 }

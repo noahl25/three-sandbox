@@ -1,5 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { v4 as uuidv4 } from 'uuid';
+import { BackSide, FrontSide, DoubleSide } from "three";
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
@@ -7,6 +9,17 @@ export function cn(...inputs: ClassValue[]) {
 
 export function lerp(a: number, b: number, t: number) {
 	return a + (b - a) * t;
+}
+
+export function clamp(value: number, min: number, max: number) {
+	return Math.min(Math.max(value, min), max);
+}
+
+export function mapRange(value: number, inRange: [number, number], outRange: [number, number]) {
+	const [inMin, inMax] = inRange;
+	const [outMin, outMax] = outRange;
+	if (inMax === inMin) return outMin;
+	return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
 }
 
 export const createObject3D = (overrides: Partial<Object3D>): Object3D => ({
@@ -19,5 +32,13 @@ export const createObject3D = (overrides: Partial<Object3D>): Object3D => ({
 	wireframe: false,
 	config: {},
 	subdivisions: 5,
+	uuid: uuidv4(),
+	culling: BackSide,
 	...overrides,
 });
+
+export const threeCullingToString = (culling: number) => {
+	if (culling == BackSide) return "Back Side";
+	else if (culling == FrontSide) return "Front Side";
+	else return "None";
+}

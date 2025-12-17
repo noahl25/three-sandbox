@@ -24,7 +24,9 @@ declare global {
         settings: Settings,
         setSettings: (settings: Settings) => void,
         shaderError: string | null,
-        setShaderError: (error: string | null) => void
+        setShaderError: (error: string | null) => void,
+        axisLength: number,
+        setAxisLength: (num: number) => void
     }
 
     type ObjectsContext = {
@@ -41,6 +43,8 @@ declare global {
         scale: { x: number, y: number, z: number },
         wireframe: boolean = false,
         subdivisions: number,
+        uuid: string,
+        culling: number,
         config: any = {}
     }
 
