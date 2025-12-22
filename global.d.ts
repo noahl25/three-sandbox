@@ -9,7 +9,7 @@ declare global {
         renameFile: (file: string, name: string) => void
     }
     
-    type ObjectTypes = "plane" | "cube" | "sphere";
+    type ObjectTypes = "plane" | "cube" | "sphere" | "cylinder" | "cone" | "torus";
     
     type Settings = {
         maximizedViewport: boolean,
@@ -46,6 +46,19 @@ declare global {
         uuid: string,
         culling: number,
         config: any = {}
+    }
+
+    type Scene = {
+        files: Record<string, string>,
+        objects: Object3D[],
+        cameraPosition: { x: number, y: number, z: number },
+        cameraDirection: { x: number, y: number, z: number }
+    }
+
+    type WindowState = "menu" | "config" | "editor"
+
+    type SignInContext = {
+        signIn: () => void
     }
 
 }

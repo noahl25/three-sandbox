@@ -13,10 +13,6 @@ const defaultFiles = {
 void main() {
   vec4 modelPosition = modelMatrix * vec4(position, 1.0);
   modelPosition.y += sin(modelPosition.x * 3.0 + u_time) * 0.2;
-
-  // Uncomment the code and hit the refresh button below for a more complex effect.
-  modelPosition.y += sin(modelPosition.z * 3.0 + u_time) * 0.1;
-
   vec4 viewPosition = viewMatrix * modelPosition;
   vec4 projectedPosition = projectionMatrix * viewPosition;
 
@@ -104,10 +100,10 @@ export const FileProvider = ({ children }: { children: ReactNode }) => {
 export const ObjectsProvider = ({ children }: { children: ReactNode }) => {
 
     const [objects, setObjects] = useState<Object3D[]>([]);
-    const [cookie] = useCookies(["objects"]);
 
     useEffect(() => {
-        setObjects(cookie.objects || [
+        const cache = window.localStorage.getItem("objects");
+        setObjects(cache && JSON.parse(cache) || [
             createObject3D({
                 vertexShader: "vertex.glsl",
                 fragmentShader: "fragment.glsl",

@@ -1,80 +1,20 @@
 'use client'
 
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import CodeMirror, { type Extension } from '@uiw/react-codemirror';
-import { cloneElement, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { EditorView } from "@codemirror/view";
-import * as THREE from "three";
 import debounce from "lodash.debounce"
-import { ArrowLeft, Axis3D, Box, ChevronDown, Circle, Fullscreen, Lock, LockOpen, Plus, RotateCcw, Settings, Square, Trash } from "lucide-react";
+import { ArrowLeft, Axis3D, Box, ChevronDown, ChevronRight, Circle, CircleUserRound, Cone, Cylinder, File, Fullscreen, Home, HomeIcon, Lock, LockOpen, LogIn, LogOut, MenuIcon, Plus, RotateCcw, Save, Settings, SignalIcon, Square, Torus, Trash, Upload, User, User2 } from "lucide-react";
 import { motion, AnimatePresence, useMotionValue, useSpring } from "motion/react";
-import { useCookies } from 'react-cookie';
 import { useFiles, useGlobal, useObjects } from "@/providers/providers";
 import { clamp, mapRange, threeCullingToString } from "@/lib/utils";
 import { createObject3D, lerp } from "@/lib/utils";
-
-const Object3D = ({ object }: { object: Object3D }) => {
-	const { files } = useFiles();
-	const processShader = (shader: string) => {
-		if (shader.startsWith("//using")) {
-			const includes = shader.slice(8, shader.indexOf("\n")).split(" ");
-			for (const include of includes.reverse()) {
-				const file = files[include];
-				shader = (file || "") + shader;
-			}
-		}
-		return shader;
-	}
-	const vertexShader = processShader(files[object.vertexShader]);
-	const fragmentShader = processShader(files[object.fragmentShader]);
-
-	const mesh = useRef<THREE.Mesh>(null);
-	const hover = useRef<number>(0.0);
-	const mousePosition = useRef<{ x: number, y: number }>({ x: 0.0, y: 0.0 });
-
-	const uniforms = useMemo(() => ({
-		u_time: { value: 0.0 },
-		u_hovered: { value: hover.current },
-		u_mouse: { value: new THREE.Vector2(0, 0) }
-	}), []);
-
-	useFrame((state, delta) => {
-		const { clock } = state;
-		if (mesh.current) {
-			const cur = mousePosition.current;
-			(mesh.current.material as any).uniforms.u_time.value = clock.getElapsedTime();
-			(mesh.current.material as any).uniforms.u_hovered.value = lerp((mesh.current.material as any).uniforms.u_hovered.value, hover.current ? 1 : 0, delta * 3);
-			(mesh.current.material as any).uniforms.u_mouse.value = new THREE.Vector2(state.pointer.x, state.pointer.y);
-		}
-	});
-
-	const geometry: Record<ObjectTypes, ReactElement<any>> = {
-		cube: <boxGeometry args={[1, 1, 1, object.subdivisions, object.subdivisions, object.subdivisions]} />,
-		plane: <planeGeometry args={[1, 1, object.subdivisions, object.subdivisions]} />,
-		sphere: <icosahedronGeometry args={[0.5, object.subdivisions]} />
-	}
-
-	return (
-		<mesh ref={mesh}
-			position={[object.position.x, object.position.y, object.position.z]}
-			rotation={[object.rotation.x * Math.PI / 180, object.rotation.y * Math.PI / 180, object.rotation.z * Math.PI / 180]}
-			scale={[object.scale.x, object.scale.y, object.scale.z]}
-			key={`${fragmentShader}-${vertexShader}`}
-			onPointerOver={() => hover.current = 1.0}
-			onPointerLeave={() => hover.current = 0.0}
-		>
-			{geometry[object.objectType]}
-			<shaderMaterial
-				vertexShader={vertexShader}
-				fragmentShader={fragmentShader}
-				wireframe={object.wireframe}
-				uniforms={uniforms}
-				side={object.culling as 0 | 1 | 2}
-			/>
-		</mesh>
-	);
-};
+import Object3D from "@/components/Object3D";
+import Image from "next/image";
+import Link from "next/link";
+import { useSignIn } from "@/components/SignInPopup";
 
 
 const FileSelector = ({ name, onClick, selected }: { name: string, onClick: () => void, selected?: boolean }) => {
@@ -188,19 +128,23 @@ const Editor = () => {
 	});
 
 	const { files, selectedFile, setFileContent } = useFiles();
-	const [content, setContent] = useState<string>(files[selectedFile]);
+	const [content, setContent] = useState<string>("");
 	const { setOnReloadClicked, live } = useGlobal();
 
-	const debounceChange = useMemo(() => (
-		debounce((content: string) => {
-			setFileContent(selectedFile, content);
-		}, 500)
-	), [setFileContent, files]);
-
 	useEffect(() => {
-		if (!live) return;
-		debounceChange(content)
-	}, [content]);
+		setContent(files[selectedFile] || "");
+	}, [selectedFile]);
+
+	const debouncedSetFileContent = useMemo(() => (
+		debounce((fileName: string, content: string) => {
+			setFileContent(fileName, content);
+		}, 500)
+	), [setFileContent]);
+
+	const handleChange = (newContent: string) => {
+		setContent(newContent);
+		debouncedSetFileContent(selectedFile, newContent);
+	};
 
 	useEffect(() => {
 		setOnReloadClicked(() => setFileContent(selectedFile, content));
@@ -208,8 +152,8 @@ const Editor = () => {
 
 	return (
 		<CodeMirror
-			value={files[selectedFile]}
-			onChange={(setContent)}
+			value={content}
+			onChange={handleChange}
 			theme={theme}
 			height="100%"
 			basicSetup={{
@@ -275,7 +219,10 @@ const ObjectPicker = ({ object }: { object: Object3D }) => {
 	const icons: Record<ObjectTypes, ReactElement<any>> = {
 		cube: <Box size={20} />,
 		plane: <Square size={20} />,
-		sphere: <Circle size={20} />
+		sphere: <Circle size={20} />,
+		cylinder: <Cylinder size={20}/>,
+		cone: <Cone size={20}/>,
+		torus: <Torus size={20}/>
 	}
 
 	return (
@@ -405,12 +352,11 @@ const BooleanRadio = ({ name, onChange, initial }: { name: string, onChange: (st
 const Config = () => {
 
 	const { objects, setObjects } = useObjects();
-	const [cookie, setCookie] = useCookies(["objects"]);
 	const { files } = useFiles();
 	const [scaleLocked, setScaleLocked] = useState<boolean>(false);
 
 	useEffect(() => {
-		setCookie("objects", JSON.stringify(objects), { maxAge: 60 * 60 * 24 * 30 });
+		window.localStorage.setItem("objects", JSON.stringify(objects));
 	}, [objects]);
 
 	const updateAttribute = (type: "position" | "rotation" | "scale", comp: "x" | "y" | "z", newVal: number, key: number) => {
@@ -422,14 +368,14 @@ const Config = () => {
 	}
 
 	return (
-		<div className="w-full h-full px-4 py-3 pb-5">
+		<div className="w-full h-full px-4 py-3 pb-2 overflow-y-scroll scrollbar">
 			{
 				objects.map((item, key) => (
-					<div className="relative w-full text-gray-300/80 border-b-2 pb-3 border-[#0F151C] mb-5" key={key}>
+					<div className="relative w-full text-gray-300/80 border-b-2 pb-3 border-[#0F151C] mb-3" key={key}>
 						<div className="flex gap-3 items-center justify-start z-1000 mb-3">
-							<p className="text-xl mb-2">Object #{key + 1} - </p>
+							<p className="text-xl mb-2">Object #{key + 1}</p>
 							<div className="relative -translate-y-[2px] text-sm z-100000000">
-								<Dropdown placeholder={item.objectType} specific={false} options={["plane", "cube", "sphere"]} onClickOption={(option: string) => {
+								<Dropdown placeholder={item.objectType} specific={false} options={["plane", "cube", "sphere", "cylinder", "cone", "torus"]} onClickOption={(option: string) => {
 									setObjects(
 										objects.map((object, id) =>
 											id === key ? { ...object, objectType: option as ObjectTypes } : object
@@ -580,6 +526,51 @@ const Config = () => {
 	);
 }
 
+const ChevronDropdown = ({ setWindowState }: { setWindowState: (state: string) => void }) => {
+	const [menuOpen, setMenuOpen] = useState<boolean>(false);
+	return (
+		<div
+			className="absolute bottom-5 text-gray-300/60 -translate-x-1/2 space-y-1 left-1/2"
+			style={{
+				pointerEvents: menuOpen ? "auto" : "none"
+			}}
+		>
+			<motion.div
+				initial={{
+					opacity: 0,
+					scale: 0
+				}}
+				animate={{
+					opacity: menuOpen ? 1 : 0,
+					scale: menuOpen ? 1 : 0
+				}}
+				className="rounded-full bg-[#0B0F14] origin-bottom border-3 border-[#0F151C] flex items-center justify-center p-3 gap-3"
+			>
+				<MenuIcon className="cursor-pointer hover:scale-110 transition-all duration-300" onClick={() => setWindowState("menu")} />
+				<File className="cursor-pointer hover:scale-110 transition-all duration-300" onClick={() => setWindowState("editor")} />
+				<Settings className="cursor-pointer hover:scale-110 transition-all duration-300" onClick={() => setWindowState("config")} />
+			</motion.div>
+			<motion.div
+				onClick={() => setMenuOpen(prev => !prev)}
+				initial={{
+					rotate: 180,
+					opacity: 0.3
+				}}
+				animate={{
+					rotate: menuOpen ? 0 : 180,
+					opacity: menuOpen ? 1 : 0.3
+				}}
+				style={{
+					pointerEvents: "all"
+				}}
+				className="relative -translate-x-[1.9px]"
+			>
+				<ChevronRight className="mx-auto hover:scale-110 transition-all duration-300 cursor-pointer" />
+			</motion.div>
+		</div>
+	);
+}
+
 const Slider = ({ value, onChange }: { value: number, onChange: (num: number) => void }) => {
 
 	const bottom = useMotionValue(value);
@@ -617,13 +608,123 @@ const Slider = ({ value, onChange }: { value: number, onChange: (num: number) =>
 	);
 }
 
+const EditorWindow = () => {
+	const { selectedFile, deleteFile } = useFiles();
+	return (
+		<>
+			<div className="h-[65px] scrollbar text-gray-300/80 overflow-hidden ml-2 overflow-x-scroll border-b-2 border-[#0F151C] flex gap-2 text-gray-300 items-center justify-start p-2 text-sm">
+				<Files />
+			</div>
+			<div className="overflow-hidden overflow-y-scroll scrollbar flex-1 relative">
+				<Editor />
+				<div onClick={() => deleteFile(selectedFile)} className="absolute top-2 right-1.5 p-2 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300">
+					<Trash size={20} />
+				</div>
+			</div>
+		</>
+	);
+}
+
+const Menu = () => {
+
+	const { signIn } = useSignIn();
+
+	return (
+		<div className="h-full w-full text-gray-300/80 overflow-y-scroll scrollbar">
+			<div className="border-b-2 border-[#0F151C] gap-3 flex items-center px-3 sm:px-5 py-5 justify-start">
+				<div className="size-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xl border-3 border-[#0F151C]">
+					<User2/>
+				</div>
+				<div className="flex flex-col items-start justify-center">
+					<p className="text-xl">Welcome, guest.</p>
+					<p className="text-sm opacity-70">Not signed in.</p>
+				</div>
+			</div>
+			<div className="border-b-2 border-[#0F151C] px-4 sm:px-7 py-5 space-y-5">
+				<p className="text-xs">NAVIGATION</p>
+				<div className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
+					<HomeIcon/>
+					<Link href="/home" className="text-lg">Go Home</Link>
+				</div>
+			</div>
+			<div className="border-b-2 border-[#0F151C] px-4 sm:px-7 py-5 space-y-5">
+				<p className="text-xs">ACCOUNT</p>
+				<div onClick={signIn} className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
+					<LogIn/>
+					<p className="text-lg">Sign In</p>
+				</div>
+			</div>
+			<div className="border-b-2 border-[#0F151C] px-4 sm:px-7 py-5 space-y-5">
+				<p className="text-xs">TOOLS</p>
+				<div className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
+					<Save />
+					<p className="text-lg">Save</p>
+				</div>
+				<div className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
+					<Upload />
+					<p className="text-lg">Publish</p>
+				</div>
+			</div>
+
+		</div>
+	);
+}
+
+const WindowSelector = ({ windowState, setWindowState }: { windowState: WindowState, setWindowState: (state: WindowState) => void }) => {
+
+	return (
+		<div className="w-full text-gray-300/60 border-t-2 border-[#0F151C] mt-auto">
+			<div className="mx-auto flex gap-3 w-fit p-3">
+				<motion.div
+					initial={{
+						scale: windowState === "menu" ? 1 : 0.75
+					}}
+					animate={{
+						scale: windowState === "menu" ? 1 : 0.75
+					}}
+					transition={{
+						type: "spring"
+					}}
+				>
+					<MenuIcon className="cursor-pointer transition-all duration-300" onClick={() => setWindowState("menu")} />
+				</motion.div>
+				<motion.div
+					initial={{
+						scale: windowState === "editor" ? 1 : 0.75
+					}}
+					animate={{
+						scale: windowState === "editor" ? 1 : 0.75
+					}}
+					transition={{
+						type: "spring"
+					}}
+				>
+					<File className="cursor-pointer transition-all duration-300" onClick={() => setWindowState("editor")} />
+				</motion.div>
+				<motion.div
+					initial={{
+						scale: windowState === "config" ? 1 : 0.75
+					}}
+					animate={{
+						scale: windowState === "config" ? 1 : 0.75
+					}}
+					transition={{
+						type: "spring"
+					}}
+				>
+					<Settings className="cursor-pointer transition-all duration-300" onClick={() => setWindowState("config")} />
+				</motion.div>
+			</div>
+		</div>
+	);
+}
+
 export default function Page() {
 
 	const { settings, setSettings, axisLength, setAxisLength } = useGlobal();
-	const { objects, setObjects } = useObjects();
-	const { selectedFile, deleteFile } = useFiles();
+	const { objects } = useObjects();
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
-	const [configOpen, setConfigOpen] = useState<boolean>(false);
+	const [windowState, setWindowState] = useState<WindowState>("editor");
 
 	useLayoutEffect(() => {
 		window.dispatchEvent(new Event("resize"));
@@ -635,14 +736,20 @@ export default function Page() {
 		}
 	}
 
+	const states: Record<WindowState, ReactElement> = {
+		"editor": <EditorWindow/>,
+		"config": <Config/>,
+		"menu": <Menu/>
+	}
+
 	return (
-		<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1, ease: "easeInOut" }} className={`h-screen w-full overflow-hidden grid ${settings.maximizedViewport ? "landscape:grid-cols-[0fr_1fr] portrait:grid-rows-[0fr_1fr]" : "landscape:grid-cols-2 portrait:grid-rows-2"}  p-2 gap-1 bg-[#080B0F]`}>
+		<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, ease: "easeInOut" }} className={`h-screen w-full overflow-hidden grid ${settings.maximizedViewport ? "landscape:grid-cols-[0fr_1fr] portrait:grid-rows-[0fr_1fr]" : "landscape:grid-cols-2 portrait:grid-rows-2"}  p-2 gap-1 bg-[#080B0F]`}>
 			<div className={`min-w-0 w-full relative order-1`}>
 				<div className="absolute top-2 left-2 flex gap-1 text-[#6B7280] z-10">
 					<Live />
 					<Reload />
 				</div>
-				<motion.div className="absolute bottom-2 left-2 z-10 flex gap-1" whileHover="hover">
+				<motion.div className="absolute bottom-2 right-2 z-10 flex gap-1" whileHover="hover">
 					<UIButton onClick={() => setSettings({ ...settings, axesHelper: !settings.axesHelper })} icon={<Axis3D />} />
 					<motion.div
 						className="absolute bottom-0 w-full pt-5 overflow-hidden"
@@ -675,49 +782,12 @@ export default function Page() {
 				</Canvas>
 			</div>
 			{
-				settings.maximizedViewport ? <div /> :
+				settings.maximizedViewport ? <div /> : 
 					<div className="min-w-0 w-full relative h-full bg-[#0B0F14] border-2 border-[#0F151C] overflow-hidden flex flex-col rounded-2xl">
-						<div className="h-[65px] scrollbar text-gray-300/80 overflow-hidden ml-2 overflow-x-scroll border-b-2 border-[#0F151C] flex gap-2 text-gray-300 items-center justify-start p-2 text-sm">
-							<AnimatePresence mode="popLayout">
-								{
-									configOpen ? 
-								<motion.div
-									key="arrow"
-									initial={{ opacity: 1 }}
-									animate={{ opacity: 1 }}
-									exit={{ opacity: 0 }}
-									transition={{ duration: 0.2 }}
-								>
-									<ArrowLeft size={20} className="text-[#6B7280] cursor-pointer hover:scale-110 transition-all duration-300" onClick={() => setConfigOpen(prev => !prev)}/>
-								</motion.div>
-										:
-								<motion.div
-									key="settings"
-									initial={{ opacity: 1 }}
-									animate={{ opacity: 1 }}
-									exit={{ opacity: 0 }}
-									transition={{ duration: 0.2 }}
-								>
-									<Settings size={20} className="cursor-pointer text-[#6B7280] hover:scale-110 transition-all duration-300" onClick={() => setConfigOpen(prev => !prev)}/>
-								</motion.div>
-								}
-							</AnimatePresence>
-							<Files />
-						</div>
-						<div className="overflow-hidden overflow-y-scroll scrollbar flex-1 relative">
-							{
-								configOpen ? 
-								<Config/> 
-									:
-								<>
-									<Editor />
-									<div onClick={() => deleteFile(selectedFile)} className="absolute top-2 right-1.5 p-2 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300">
-										<Trash size={20} />
-									</div>
-								</>
-							}
-						</div>
+						{states[windowState]}
+						<WindowSelector windowState={windowState} setWindowState={(state: WindowState) => setWindowState(state)}/>
 					</div>
+				
 			}
 		</motion.div>
 	)

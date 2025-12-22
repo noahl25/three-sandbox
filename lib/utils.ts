@@ -33,12 +33,12 @@ export const createObject3D = (overrides: Partial<Object3D>): Object3D => ({
 	config: {},
 	subdivisions: 5,
 	uuid: uuidv4(),
-	culling: BackSide,
+	culling: 0,
 	...overrides,
 });
 
 export const threeCullingToString = (culling: number) => {
-	if (culling == BackSide) return "Back Side";
-	else if (culling == FrontSide) return "Front Side";
+	if (culling == 0) return "Back Side";
+	else if (culling == 1) return "Front Side";
 	else return "None";
 }
