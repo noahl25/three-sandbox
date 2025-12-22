@@ -8,13 +8,14 @@ import { EditorView } from "@codemirror/view";
 import debounce from "lodash.debounce"
 import { ArrowLeft, Axis3D, Box, ChevronDown, ChevronRight, Circle, CircleUserRound, Cone, Cylinder, File, Fullscreen, Home, HomeIcon, Lock, LockOpen, LogIn, LogOut, MenuIcon, Plus, RotateCcw, Save, Settings, SignalIcon, Square, Torus, Trash, Upload, User, User2 } from "lucide-react";
 import { motion, AnimatePresence, useMotionValue, useSpring } from "motion/react";
-import { useFiles, useGlobal, useObjects } from "@/providers/providers";
+import { useFiles, useGlobal, useObjects, useSession } from "@/providers/providers";
 import { clamp, mapRange, threeCullingToString } from "@/lib/utils";
 import { createObject3D, lerp } from "@/lib/utils";
 import Object3D from "@/components/Object3D";
 import Image from "next/image";
 import Link from "next/link";
 import { useSignIn } from "@/components/SignInPopup";
+import { oauthClient } from "@/lib/auth/client";
 
 
 const FileSelector = ({ name, onClick, selected }: { name: string, onClick: () => void, selected?: boolean }) => {
@@ -373,7 +374,7 @@ const Config = () => {
 				objects.map((item, key) => (
 					<div className="relative w-full text-gray-300/80 border-b-2 pb-3 border-[#0F151C] mb-3" key={key}>
 						<div className="flex gap-3 items-center justify-start z-1000 mb-3">
-							<p className="text-xl mb-2">Object #{key + 1}</p>
+							<p className="text-lg sm:text-xl mb-2">Object #{key + 1}</p>
 							<div className="relative -translate-y-[2px] text-sm z-100000000">
 								<Dropdown placeholder={item.objectType} specific={false} options={["plane", "cube", "sphere", "cylinder", "cone", "torus"]} onClickOption={(option: string) => {
 									setObjects(
@@ -628,16 +629,23 @@ const EditorWindow = () => {
 const Menu = () => {
 
 	const { signIn } = useSignIn();
+	const { session, setSession } = useSession();
+	console.log(session)
 
 	return (
 		<div className="h-full w-full text-gray-300/80 overflow-y-scroll scrollbar">
 			<div className="border-b-2 border-[#0F151C] gap-3 flex items-center px-3 sm:px-5 py-5 justify-start">
-				<div className="size-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xl border-3 border-[#0F151C]">
-					<User2/>
-				</div>
+				{
+					session === null?
+					<div className="size-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xl">
+						<User2/>
+					</div>
+						:
+					<div className="size-12 rounded-full bg-center bg-cover" style={{ backgroundImage: `url(${session.user.image})` }}/>
+				}
 				<div className="flex flex-col items-start justify-center">
-					<p className="text-xl">Welcome, guest.</p>
-					<p className="text-sm opacity-70">Not signed in.</p>
+					<p className="text-xl">Welcome, {session === null ? "guest" : session.user.name}</p>
+					<p className="text-sm opacity-70">{session === null ? "Not signed in." : "Signed in"}</p>
 				</div>
 			</div>
 			<div className="border-b-2 border-[#0F151C] px-4 sm:px-7 py-5 space-y-5">
@@ -649,9 +657,13 @@ const Menu = () => {
 			</div>
 			<div className="border-b-2 border-[#0F151C] px-4 sm:px-7 py-5 space-y-5">
 				<p className="text-xs">ACCOUNT</p>
-				<div onClick={signIn} className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
-					<LogIn/>
-					<p className="text-lg">Sign In</p>
+				<div onClick={session ? () => { oauthClient.signOut(); setSession(null); } : signIn } className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
+					{ session === null ? 
+						<LogIn/>
+							:
+						<LogOut/>
+					}
+					<p className="text-lg">{session === null ? "Sign In" : "Sign Out"}</p>
 				</div>
 			</div>
 			<div className="border-b-2 border-[#0F151C] px-4 sm:px-7 py-5 space-y-5">

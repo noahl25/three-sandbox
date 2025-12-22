@@ -61,6 +61,11 @@ declare global {
         signIn: () => void
     }
 
+    type SessionContext = {
+        session: any,
+        setSession: (session: any) => void
+    }
+
 }
 
 export {}

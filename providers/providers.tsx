@@ -1,12 +1,13 @@
 'use client'
 
 import { createObject3D } from "@/lib/utils";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { CookiesProvider, useCookies } from "react-cookie";
 
 const FileContext = createContext<FilesContext | undefined>(undefined);
 const GlobalContext = createContext<GlobalContext | undefined>(undefined);
 const ObjectsContext = createContext<ObjectsContext | undefined>(undefined);
+const SessionContext = createContext<SessionContext | undefined>(undefined);
 
 const defaultFiles = {
     "vertex.glsl": `uniform float u_time;
@@ -23,7 +24,7 @@ void main() {
 }`
 };
 
-export const FileProvider = ({ children }: { children: ReactNode }) => {
+const FileProvider = ({ children }: { children: ReactNode }) => {
 
     const [selectedFile, setSelectedFile] = useState("");
     const [files, setFiles] = useState<Record<string, string>>(defaultFiles);
@@ -97,7 +98,7 @@ export const FileProvider = ({ children }: { children: ReactNode }) => {
 
 }
 
-export const ObjectsProvider = ({ children }: { children: ReactNode }) => {
+const ObjectsProvider = ({ children }: { children: ReactNode }) => {
 
     const [objects, setObjects] = useState<Object3D[]>([]);
 
@@ -119,7 +120,7 @@ export const ObjectsProvider = ({ children }: { children: ReactNode }) => {
     );
 }
 
-export const GlobalProvider = ({ children }: { children: ReactNode }) => {
+const GlobalProvider = ({ children }: { children: ReactNode }) => {
 
     const [live, setLive] = useState<boolean>(true);
     const [onReloadClicked, setOnReloadClickedState] = useState<() => void>(() => () => { });
@@ -136,6 +137,13 @@ export const GlobalProvider = ({ children }: { children: ReactNode }) => {
     return <GlobalContext.Provider value={{ live, setLive, onReloadClicked, setOnReloadClicked, settings, setSettings, shaderError, setShaderError, axisLength, setAxisLength }}>
         {children}
     </GlobalContext.Provider>
+}
+
+export const SessionProvider = ({ children, session }: { children: ReactNode, session: any }) => {
+    const [clientSession, setSession] = useState<any>(session);
+    return <SessionContext.Provider value={{ session: clientSession, setSession }}>
+        {children}
+    </SessionContext.Provider>
 }
 
 export const useGlobal = () => {
@@ -155,6 +163,12 @@ export const useObjects = () => {
     const objects = useContext(ObjectsContext);
     if (!objects) throw Error("Objects context undefined.");
     return objects;
+}
+
+export const useSession = () => {
+    const session = useContext(SessionContext);
+    if (!session) throw Error("Sessions context undefined.");
+    return session;
 }
 
 export default function Providers({ children }: { children: React.ReactNode }) {
