@@ -1,8 +1,9 @@
 'use client'
 
 import { createObject3D } from "@/lib/utils";
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { CookiesProvider, useCookies } from "react-cookie";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CookiesProvider } from "react-cookie";
+import { useSearchParams } from "next/navigation";
 
 const FileContext = createContext<FilesContext | undefined>(undefined);
 const GlobalContext = createContext<GlobalContext | undefined>(undefined);
@@ -24,30 +25,78 @@ void main() {
 }`
 };
 
+const SceneContext = createContext<{ scene: any | null; loading: boolean; error: string | null, setScenePublished: (val: boolean) => void} | undefined>(undefined);
+
+const SceneProvider = ({ children }: { children: ReactNode }) => {
+    const searchParams = useSearchParams();
+    const id = searchParams.get("id");
+
+    const [scene, setScene] = useState<any | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [scenePublished, setScenePublished] = useState<boolean>(false);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const run = async () => {
+            if (!id) {
+                setScene(null);
+                setError(null);
+                setLoading(false);
+                return;
+            }
+
+            setLoading(true);
+            setError(null);
+
+            try {
+                const result = await fetch(`/api/scenes?id=${id}`);
+                if (!result.ok) throw new Error(`Failed to fetch scene (${result.status})`);
+
+                const json = await result.json();
+                if (cancelled) return;
+                setScene(json);
+            } catch (e: any) {
+                if (cancelled) return;
+                setError(e?.message ?? "Failed to fetch scene");
+                setScene(null);
+            } finally {
+                if (cancelled) return;
+                setLoading(false);
+            }
+        };
+
+        run();
+        return () => {
+            cancelled = true;
+        };
+    }, [id, scenePublished]);
+
+    const value = useMemo(() => ({ scene, loading, error, setScenePublished }), [scene, loading, error, setScenePublished]);
+
+    return <SceneContext.Provider value={value}>{children}</SceneContext.Provider>;
+};
+
 const FileProvider = ({ children }: { children: ReactNode }) => {
 
-    const [selectedFile, setSelectedFile] = useState("");
+    const [selectedFile, setSelectedFile] = useState("vertex.glsl");
     const [files, setFiles] = useState<Record<string, string>>(defaultFiles);
+    const { scene } = useScene();
 
     useEffect(() => {
-        const saved = window.localStorage.getItem("files");
-        if (!saved) return;
-
-        const parsed = JSON.parse(saved);
-
-        setFiles(parsed);
-        setSelectedFile(Object.keys(parsed)[0]);
-    }, []);
-
-    useEffect(() => {
-        window.localStorage.setItem("files", JSON.stringify(files));
-    }, [files]);
-
-    useEffect(() => {
-        if (selectedFile) return;
-        const keys = Object.keys(files);
-        if (keys.length) setSelectedFile(keys[0]);
-    }, [files, selectedFile]);
+        if (scene?.scene?.files) {
+            const record = Object.fromEntries(Object.entries(scene.scene.files).map(([key, val]) => [
+                key.replaceAll("<%period%>", "."),
+                val
+            ]));
+            setFiles(record as Record<string, string>);
+            setSelectedFile(Object.keys(record)[0]);
+        } else {
+            setFiles(defaultFiles);
+            setSelectedFile("vertex.glsl");
+        }
+    }, [scene]);
 
     const setFileContent = (name: string, content: string) => {
         setFiles(prev => ({ ...prev, [name]: content }));
@@ -91,7 +140,7 @@ const FileProvider = ({ children }: { children: ReactNode }) => {
         });
     }
     return (
-        <FileContext.Provider value={{ files, selectedFile, setSelectedFile, setFileContent, addFile, deleteFile, renameFile }}>
+        <FileContext.Provider value={{ files, selectedFile, setSelectedFile, setFileContent, addFile, deleteFile, renameFile, setFiles }}>
             {children}
         </FileContext.Provider>
     );
@@ -101,17 +150,21 @@ const FileProvider = ({ children }: { children: ReactNode }) => {
 const ObjectsProvider = ({ children }: { children: ReactNode }) => {
 
     const [objects, setObjects] = useState<Object3D[]>([]);
+    const { scene } = useScene();
 
     useEffect(() => {
-        const cache = window.localStorage.getItem("objects");
-        setObjects(cache && JSON.parse(cache) || [
-            createObject3D({
-                vertexShader: "vertex.glsl",
-                fragmentShader: "fragment.glsl",
-                objectType: "sphere"
-            })
-        ])
-    }, []);
+        if (scene?.scene?.objects) {
+            setObjects(scene.scene.objects);
+        } else {
+            setObjects([
+                createObject3D({
+                    vertexShader: "vertex.glsl",
+                    fragmentShader: "fragment.glsl",
+                    objectType: "sphere"
+                })
+            ])
+        }
+    }, [scene]);
 
     return (
         <ObjectsContext.Provider value={{ objects, setObjects }}>
@@ -133,8 +186,46 @@ const GlobalProvider = ({ children }: { children: ReactNode }) => {
     });
     const [shaderError, setShaderError] = useState<string | null>(null);
     const [axisLength, setAxisLength] = useState<number>(1);
+    const [currentLoadedSceneID, setCurrentLoadedSceneID] = useState<string | null>(null);
+    const [ownsScene, setOwnsScene] = useState<boolean>(false);
+    const [currentLoadedSceneName, setCurrentLoadedSceneName] = useState<string | null>(null);
+    const camera = useRef<{ position: { x: number, y: number, z: number }, direction: { x: number, y: number, z: number } }>({ position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: -1 } });
+    const { scene } = useScene();
+    const initalCameraPosition = useRef < { x: number, y: number, z: number } | null>(null);
+    const initalCameraDirection = useRef<{ x: number, y: number, z: number } | null>(null);
+    const { session } = useSession();
+    const [scenePublished, setScenePublished] = useState<boolean>(false);
 
-    return <GlobalContext.Provider value={{ live, setLive, onReloadClicked, setOnReloadClicked, settings, setSettings, shaderError, setShaderError, axisLength, setAxisLength }}>
+    useEffect(() => {
+        const id = scene?._id;
+        if (id) {
+            setCurrentLoadedSceneID(String(id));
+            setCurrentLoadedSceneName(scene.title ?? null);
+            initalCameraPosition.current = scene.scene?.cameraPosition ?? null;
+            initalCameraDirection.current = scene.scene?.cameraDirection ?? null;
+        } else {
+            setCurrentLoadedSceneID(null);
+            setCurrentLoadedSceneName(null);
+            initalCameraPosition.current = null;
+            initalCameraDirection.current = null;
+        }
+        setScenePublished(scene?.public ?? false);
+    }, [scene]);
+    useEffect(() => {
+        if (scene) {
+            if (session && session.user.id === scene.authorID) {
+                setOwnsScene(true);
+            }
+            else {
+                setOwnsScene(false);
+            }
+        }
+        else {
+            setOwnsScene(false);
+        }
+    }, [session, scene, currentLoadedSceneID]);
+
+    return <GlobalContext.Provider value={{ ownsScene, scenePublished, initialCameraPosition: initalCameraPosition.current, initialCameraDirection: initalCameraDirection.current, live, setLive, onReloadClicked, setOnReloadClicked, settings, setSettings, shaderError, setShaderError, axisLength, setAxisLength, currentLoadedSceneID, setCurrentLoadedSceneID, camera, currentLoadedSceneName, setCurrentLoadedSceneName }}>
         {children}
     </GlobalContext.Provider>
 }
@@ -159,6 +250,13 @@ export const useFiles = () => {
     return files;
 }
 
+
+export const useScene = () => {
+    const scene = useContext(SceneContext);
+    if (!scene) throw Error("Scene context undefined.");
+    return scene;
+};
+
 export const useObjects = () => {
     const objects = useContext(ObjectsContext);
     if (!objects) throw Error("Objects context undefined.");
@@ -174,13 +272,15 @@ export const useSession = () => {
 export default function Providers({ children }: { children: React.ReactNode }) {
     return (
         <CookiesProvider defaultSetOptions={{ path: "/" }}>
-            <GlobalProvider>
-                <FileProvider>
-                    <ObjectsProvider>
-                        {children}
-                    </ObjectsProvider>
-                </FileProvider>
-            </GlobalProvider>
+            <SceneProvider>
+                <GlobalProvider>
+                    <FileProvider>
+                        <ObjectsProvider>
+                            {children}
+                        </ObjectsProvider>
+                    </FileProvider>
+                </GlobalProvider>
+            </SceneProvider>
         </CookiesProvider>
     );
 }

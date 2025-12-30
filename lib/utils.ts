@@ -37,7 +37,7 @@ export const createObject3D = (overrides: Partial<Object3D>): Object3D => ({
 	...overrides,
 });
 
-export const threeCullingToString = (culling: number) => {
+export function threeCullingToString(culling: number) {
 	if (culling == 0) return "Back Side";
 	else if (culling == 1) return "Front Side";
 	else return "None";

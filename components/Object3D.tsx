@@ -1,7 +1,7 @@
 'use client'
 
 import { lerp } from "@/lib/utils";
-import { useFiles } from "@/providers/providers";
+import { useFiles, useGlobal } from "@/providers/providers";
 import { useFrame, useThree } from "@react-three/fiber";
 import { ReactElement, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
@@ -19,8 +19,8 @@ export default function Object3D({ object, fragmentShaderOverride, vertexShaderO
         }
         return shader;
     }
-    const vertexShader = fragmentShaderOverride ?? processShader(files[object.vertexShader]);
-    const fragmentShader = vertexShaderOverride ?? processShader(files[object.fragmentShader]);
+    const vertexShader = vertexShaderOverride ?? processShader(files[object.vertexShader]);
+    const fragmentShader = fragmentShaderOverride ?? processShader(files[object.fragmentShader]);
     const { camera } = useThree();
 
     const mesh = useRef<THREE.Mesh>(null);

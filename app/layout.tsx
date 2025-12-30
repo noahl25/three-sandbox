@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Providers, { SessionProvider } from "@/providers/providers";
 import "./globals.css";
-import SignInPopup from "@/components/SignInPopup";
-import SignInProvider from "@/components/SignInPopup";
+import PopupProvider from "@/components/Popup";
 import { auth } from "@/lib/auth/auth";
 import { headers } from "next/headers";
 
@@ -25,13 +24,13 @@ export default async function RootLayout({
 			<body
 				className={`antialiased`}
 			>
-				<Providers>
-					<SignInProvider>
-						<SessionProvider session={session ? { user: session.user } : null}>
-							{children}
-						</SessionProvider>
-					</SignInProvider>
-				</Providers>
+				<SessionProvider session={session ? { user: session.user } : null}>
+						<Providers>
+							<PopupProvider>
+								{children}
+							</PopupProvider>
+						</Providers>
+				</SessionProvider>
 			</body>
 		</html>
 	);

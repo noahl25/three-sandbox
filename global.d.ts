@@ -1,3 +1,7 @@
+import { Camera } from "three";
+import { MutableRefObject, ReactElement, RefObject } from "react";
+import { Vector3 } from "@react-three/fiber";
+
 declare global {
     type FilesContext = {
         files: Record<string, string>,
@@ -6,7 +10,8 @@ declare global {
         setFileContent: (name: string, contents: string) => void,
         addFile: (name: string) => boolean,
         deleteFile: (name: string) => void,
-        renameFile: (file: string, name: string) => void
+        renameFile: (file: string, name: string) => void,
+        setFiles: (files: Record<string, string>) => void
     }
     
     type ObjectTypes = "plane" | "cube" | "sphere" | "cylinder" | "cone" | "torus";
@@ -26,7 +31,16 @@ declare global {
         shaderError: string | null,
         setShaderError: (error: string | null) => void,
         axisLength: number,
-        setAxisLength: (num: number) => void
+        setAxisLength: (num: number) => void,
+        currentLoadedSceneID: string | null,
+        setCurrentLoadedSceneID: (id: string | null) => void,
+        currentLoadedSceneName: string | null,
+        setCurrentLoadedSceneName: (name: string | null) => void,
+        camera: RefObject<{ position: { x: number, y: number, z: number }, direction: { x: number, y: number, z: number } }>,
+        initialCameraPosition: { x: number, y: number, z: number } | null,
+        initialCameraDirection: { x: number, y: number, z: number } | null,
+        ownsScene: boolean,
+        scenePublished: boolean
     }
 
     type ObjectsContext = {
@@ -49,17 +63,31 @@ declare global {
     }
 
     type Scene = {
-        files: Record<string, string>,
+        files: Map<string, string>,
         objects: Object3D[],
         cameraPosition: { x: number, y: number, z: number },
         cameraDirection: { x: number, y: number, z: number }
     }
 
-    type WindowState = "menu" | "config" | "editor"
+    type SavedScene = {
+        scene: Scene,
+        title: string,
+        description?: string,
+        tags?: string[],
+        authorEmail: string,
+        authorName: string,
+        likes: number,
+        createdOn: string,
+        _id: string
+    };
 
-    type SignInContext = {
-        signIn: () => void
+    type WindowState = "menu" | "config" | "editor" | "info"
+
+    type PopupContext = {
+        showPopup: (popup: ReactNode) => void
     }
+
+    type PopupElement = ReactElement<{ onClose: () => void }>
 
     type SessionContext = {
         session: any,

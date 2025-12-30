@@ -1,21 +1,27 @@
 'use client'
 
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import CodeMirror, { type Extension } from '@uiw/react-codemirror';
-import { cloneElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { EditorView } from "@codemirror/view";
 import debounce from "lodash.debounce"
-import { ArrowLeft, Axis3D, Box, ChevronDown, ChevronRight, Circle, CircleUserRound, Cone, Cylinder, File, Fullscreen, Home, HomeIcon, Lock, LockOpen, LogIn, LogOut, MenuIcon, Plus, RotateCcw, Save, Settings, SignalIcon, Square, Torus, Trash, Upload, User, User2 } from "lucide-react";
-import { motion, AnimatePresence, useMotionValue, useSpring } from "motion/react";
-import { useFiles, useGlobal, useObjects, useSession } from "@/providers/providers";
+import { Axis3D, Box, Camera, ChevronDown, ChevronRight, Circle, Cone, Cylinder, File, Fullscreen, Heart, HomeIcon, InfoIcon, Lock, LockOpen, LogIn, LogOut, MenuIcon, Plus, RotateCcw, Save, Settings, Square, Torus, Trash, Upload, User2 } from "lucide-react";
+import { motion, AnimatePresence, useMotionValue, useSpring, useAnimationControls } from "motion/react";
+import { useFiles, useGlobal, useObjects, useScene, useSession } from "@/providers/providers";
 import { clamp, mapRange, threeCullingToString } from "@/lib/utils";
-import { createObject3D, lerp } from "@/lib/utils";
+import { createObject3D } from "@/lib/utils";
 import Object3D from "@/components/Object3D";
-import Image from "next/image";
+import { SignInPopup, ConfirmationPopup } from "@/components/Popups"
 import Link from "next/link";
-import { useSignIn } from "@/components/SignInPopup";
+import { usePopup } from "@/components/Popup";
 import { oauthClient } from "@/lib/auth/client";
+import { useRouter, useSearchParams } from "next/navigation";
+import { deleteShader, saveShader } from "@/lib/actions";
+import UpdateCamera from "@/components/UpdateCamera";
+import { useForm, SubmitHandler } from "react-hook-form"
+import TagsInput from "@/components/TagsInput";
+import router from "next/router";
 
 
 const FileSelector = ({ name, onClick, selected }: { name: string, onClick: () => void, selected?: boolean }) => {
@@ -26,15 +32,20 @@ const FileSelector = ({ name, onClick, selected }: { name: string, onClick: () =
 	const divRef = useRef<HTMLDivElement | null>(null);
 
 	const finishRename = () => {
-		renameFile(name, value);
-		setRenaming(false);
+		if (value.length > 100) {
+			setRenaming(false);
+		}
+		else {
+			renameFile(name, value);
+			setRenaming(false);
+		}
 	};
 
 	return (
 		<>
 			{
 				renaming ? 
-					<input type="text" autoFocus onBlur={() => setRenaming(false)} onChange={e => setValue(e.target.value)} onKeyDown={e => e.key === "Enter" && finishRename()} placeholder={name} className={`focus:outline-none border-[#0F151C] border-2 rounded-3xl h-full px-4 flex justify-start items-center hover:bg-white/5 cursor-pointer ${selected ? "bg-white/5" : ""}`} style={{
+					<input type="text" maxLength={100} autoFocus onBlur={() => setRenaming(false)} onChange={e => setValue(e.target.value)} onKeyDown={e => e.key === "Enter" && finishRename()} placeholder={name} className={`focus:outline-none border-[#0F151C] border-2 rounded-3xl h-full px-4 flex justify-start items-center hover:bg-white/5 cursor-pointer ${selected ? "bg-white/5" : ""}`} style={{
 						width: `${divRef.current?.offsetWidth}px`
 					}}>
 				</input>
@@ -65,7 +76,7 @@ const Files = () => {
 					return <FileSelector key={name} name={name} onClick={() => setSelectedFile(name)} selected={name == selectedFile} />
 				})
 			}
-			<div onClick={() => addFile("file.glsl")} className="p-1 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300">
+			<div onClick={() => { if (Object.keys(files).length < 100) addFile("file.glsl"); } } className="p-1 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300">
 				<Plus size={20}/>
 			</div>
 		</>
@@ -130,11 +141,11 @@ const Editor = () => {
 
 	const { files, selectedFile, setFileContent } = useFiles();
 	const [content, setContent] = useState<string>("");
-	const { setOnReloadClicked, live } = useGlobal();
+	const { setOnReloadClicked } = useGlobal();
 
 	useEffect(() => {
 		setContent(files[selectedFile] || "");
-	}, [selectedFile]);
+	}, [selectedFile, files, files[selectedFile]]);
 
 	const debouncedSetFileContent = useMemo(() => (
 		debounce((fileName: string, content: string) => {
@@ -143,13 +154,14 @@ const Editor = () => {
 	), [setFileContent]);
 
 	const handleChange = (newContent: string) => {
+		if (newContent.length > 10000) return;
 		setContent(newContent);
 		debouncedSetFileContent(selectedFile, newContent);
 	};
 
 	useEffect(() => {
 		setOnReloadClicked(() => setFileContent(selectedFile, content));
-	}, [selectedFile, setFileContent, content, setOnReloadClicked]);
+	}, [selectedFile, setFileContent, content]);
 
 	return (
 		<CodeMirror
@@ -356,10 +368,6 @@ const Config = () => {
 	const { files } = useFiles();
 	const [scaleLocked, setScaleLocked] = useState<boolean>(false);
 
-	useEffect(() => {
-		window.localStorage.setItem("objects", JSON.stringify(objects));
-	}, [objects]);
-
 	const updateAttribute = (type: "position" | "rotation" | "scale", comp: "x" | "y" | "z", newVal: number, key: number) => {
 		setObjects(
 			objects.map((object, id) => (
@@ -443,7 +451,7 @@ const Config = () => {
 								<span>Scale</span>
 								<div
 									onClick={() => setScaleLocked((prev) => !prev)}
-									className="p-1 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300"
+								 	className="p-1 border-[#0F151C] text-[#6B7280] cursor-pointer border-2 rounded-full hover:scale-110 active:scale-95 transition-all duration-300"
 								>
 									{scaleLocked ? <Lock size={15} /> : <LockOpen size={15} />}
 								</div>
@@ -626,11 +634,264 @@ const EditorWindow = () => {
 	);
 }
 
+const SavePopup = ({ onClose }: { onClose: () => void }) => {
+
+	const [error, setError] = useState<string | null>(null);
+	const inputRef = useRef<HTMLInputElement | null>(null);
+	const [submitting, setSubmitting] = useState<boolean>(false);
+	const [submitResult, setSubmitResult] = useState<{ result: string, success: boolean } | null>(null);
+
+	const { files } = useFiles();
+	const { objects } = useObjects();
+	const { currentLoadedSceneID, camera } = useGlobal();
+	const router = useRouter();
+
+	const onSubmit = () => {
+		if (!inputRef.current) return;
+		const title = inputRef.current.value.trim();
+		if (title.length === 0) {
+			setError("Please enter a title.")
+		}
+		else if (title.length > 35) {
+			setError("Title must be less than 35 characters.");
+		}
+		else {
+			const filesMap = new Map<string, string>(Object.entries(files));
+			const newMap = new Map<string, string>();
+			filesMap.forEach((value, key) => {
+				const newKey = key.replace(/\./g, "<%period%>");
+				newMap.set(newKey, value);
+			});
+			setSubmitting(true);
+			const scene: Scene = {
+				files: newMap,
+				objects,
+				cameraPosition: { x: camera.current.position.x, y: camera.current.position.y, z: camera.current.position.z },
+				cameraDirection: { x: camera.current.direction.x, y: camera.current.direction.y, z: camera.current.direction.z }
+			}
+			saveShader(scene, title, currentLoadedSceneID).then((result) => {
+				if (result?.success) {
+					setSubmitResult({ result: "Success!", success: true })
+					router.push(`?id=${result.id}`);
+					setTimeout(onClose, 1300);
+				}
+				else {
+					setSubmitResult({ result: result?.error ?? "An error occurred.", success: false })
+					setSubmitting(false);
+				}
+			});
+		}
+	}
+
+	const close = () => {
+		if (!submitting) {
+			onClose();
+		}
+	}
+
+	return (
+		<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={close} className="absolute inset-0 backdrop-blur-sm z-10000 text-stone-300">
+			<div onClick={(e) => e.stopPropagation()} className="absolute left-1/2 top-1/2 -translate-x-1/2 flex flex-col items-center gap-4 -translate-y-1/2 w-7/8 sm:w-[400px] p-5 rounded-xl bg-gray-950">
+				<p className="text-xl text-center w-full">Save Scene</p>
+				<input ref={inputRef} type="text" maxLength={35} placeholder="Title..." className="cursor-pointer text-stone-300/80 w-full h-[40px] focus:outline-none w-[200px] border-3 border-[#0F151C] rounded-lg flex items-center justify-start p-2"/>
+				{
+					error &&
+					<div className="text-xs text-red-500/80 w-full text-center">
+						{error}
+					</div>
+				}
+				<div className="w-full flex justify-center items-center gap-2">
+					<div onClick={onSubmit} className="cursor-pointer hover:opacity-80 transition-all duration-300 opacity-60 text-sm">{submitting ? "Saving..." : "Save"}</div>
+					<div onClick={close} className="cursor-pointer hover:opacity-80 transition-all duration-300 opacity-60 text-sm">Cancel</div>
+				</div>
+				{
+					submitResult &&
+					<div className={`${submitResult.success ? "text-green-500/80" : "text-red-500/80"} text-xs w-full text-center`}>
+						{submitResult.result}
+					</div>
+				}
+			</div>
+		</motion.div>
+	);
+}
+
+const PublishPopup = ({ onClose }: { onClose: () => void }) => {
+
+	type Inputs = {
+		title: string,
+		description: string,
+		tags: string[]
+	}
+
+	const [submitResult, setSubmitResult] = useState<{ result: string, success: boolean } | null>(null);
+	const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+	const { files } = useFiles();
+	const { objects } = useObjects();
+	const { currentLoadedSceneID, camera } = useGlobal();
+	const router = useRouter();
+	const { setScenePublished } = useScene();
+	
+	const {
+		register,
+		handleSubmit,
+		control,
+		formState: { errors },
+	} = useForm<Inputs>();
+	const onSubmit: SubmitHandler<Inputs> = (data) => {
+		setIsSubmitting(true);
+		const filesMap = new Map<string, string>(Object.entries(files));
+		const newMap = new Map<string, string>();
+		filesMap.forEach((value, key) => {
+			const newKey = key.replace(/\./g, "<%period%>");
+			newMap.set(newKey, value);
+		});
+		const scene: Scene = {
+			files: newMap,
+			objects,
+			cameraPosition: { x: camera.current.position.x, y: camera.current.position.y, z: camera.current.position.z },
+			cameraDirection: { x: camera.current.direction.x, y: camera.current.direction.y, z: camera.current.direction.z }
+		}
+		saveShader(scene, data.title, currentLoadedSceneID, data.description, data.tags, true).then((result) => {
+			if (result?.success) {
+				setSubmitResult({ result: "Success!", success: true })
+				if (result.id) {
+					router.push(`?id=${result.id}`);
+				}
+				else {
+					setScenePublished(true);
+				}
+				setTimeout(onClose, 1300);
+			}
+			else {
+				setSubmitResult({ result: result?.error ?? "An error occurred.", success: false })
+				setIsSubmitting(false);
+			}
+		});
+	}
+	
+	const close = () => {
+		if (!isSubmitting) {
+			onClose();
+		}
+	}
+
+	const { currentLoadedSceneName } = useGlobal();
+
+	return (
+		<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={close} className="absolute inset-0 backdrop-blur-sm z-10000 text-stone-300">
+			<div onClick={(e) => e.stopPropagation()} className="absolute left-1/2 top-1/2 -translate-x-1/2 flex flex-col items-center gap-4 -translate-y-1/2 w-7/8 sm:w-[400px] p-5 rounded-xl bg-gray-950">
+				<p className="text-xl text-center w-full">Publish Scene</p>
+				<form onSubmit={handleSubmit(onSubmit)} className="w-full space-y-2 text-stone-300/80">
+					<input defaultValue={currentLoadedSceneName ? currentLoadedSceneName : ""} maxLength={35} type="text" {...register("title", { required: { value: true, message: "Please enter a title." }, maxLength: 35, setValueAs: (value) => value.trim() } )} placeholder="Title..." className="w-full h-[40px] focus:outline-none w-[200px] border-3 border-[#0F151C] rounded-lg flex items-center justify-start p-2" />
+					{
+						errors.title && <p className="w-full text-center text-red-500/80 text-xs">{errors.title.message}</p>
+					}
+					<textarea maxLength={500} placeholder="Description..." style={{ resize: "none" }} {...register("description", { required: false, maxLength: 500, setValueAs: (value) => value.trim() })} className="scrollbar w-full h-[120px] focus:outline-none w-[200px] border-3 border-[#0F151C] rounded-lg flex items-center justify-start px-2 py-[2px]" />
+					{
+						errors.description && <p className="w-full text-center text-red-500/80 text-xs">{errors.description.message}</p>
+					}
+					<TagsInput control={control} name={"tags"}/>
+					<div className="w-full flex justify-center items-center gap-2 mt-5">
+						<button type="submit" disabled={isSubmitting} className="cursor-pointer hover:opacity-80 transition-all duration-300 opacity-60 text-sm">{isSubmitting ? "Publishing..." : "Publish"}</button>
+						<div onClick={close} className="cursor-pointer hover:opacity-80 transition-all duration-300 opacity-60 text-sm">Cancel</div>
+					</div>
+				</form>
+				{
+					submitResult &&
+					<div className={`${submitResult.success ? "text-green-500/80" : "text-red-500/80"} text-xs w-full text-center`}>
+						{submitResult.result}
+					</div>
+				}
+			</div>
+		</motion.div>
+	);
+}
+
 const Menu = () => {
 
-	const { signIn } = useSignIn();
+	const { showPopup } = usePopup();
 	const { session, setSession } = useSession();
-	console.log(session)
+	const { currentLoadedSceneID, camera, currentLoadedSceneName, ownsScene, scenePublished } = useGlobal();
+	const { files } = useFiles();
+	const { objects } = useObjects();
+
+	const [actionResult, setActionResult] = useState<{ result: string, success: boolean } | null>(null);
+	const actionResultAnimationControls = useAnimationControls();
+	const router = useRouter();
+	
+	const showSigninPopup = () => {
+		showPopup(<SignInPopup onCloseAction={() => showPopup(null)} />);
+	}
+	const save = () => {
+		if (currentLoadedSceneID) {
+			const filesMap = new Map<string, string>(Object.entries(files));
+			const newMap = new Map<string, string>();
+			filesMap.forEach((value, key) => {
+				const newKey = key.replace(/\./g, "<%period%>");
+				newMap.set(newKey, value);
+			});
+			const scene: Scene = {
+				files: newMap,
+				objects,
+				cameraPosition: { x: camera.current.position.x, y: camera.current.position.y, z: camera.current.position.z },
+				cameraDirection: { x: camera.current.direction.x, y: camera.current.direction.y, z: camera.current.direction.z }
+			}
+			saveShader(scene, currentLoadedSceneName ?? "", currentLoadedSceneID).then((result) => {
+				if (result?.success) {
+					setActionResult({ result: "Success!", success: true });
+				}
+				else {
+					setActionResult({ result: result?.error ?? "An error occurred.", success: false });
+				}
+			});
+		}
+		else {
+			showPopup(<SavePopup onClose={() => showPopup(null)} />);
+		}
+	}
+	const publish = () => {
+		showPopup(<PublishPopup onClose={() => showPopup(null)} />);
+	}
+	const signOut = () => {
+		showPopup(<ConfirmationPopup confirmationText="Sign out?" subText="Unsaved progress may be lost." onCloseAction={() => showPopup(null)} onConfirmAction={async () => { 
+			await oauthClient.signOut(); 
+			showPopup(null); 
+			setSession(null);
+		}}/>)
+	}
+	const onDeleteShader = () => {
+		if (currentLoadedSceneID) {
+			deleteShader(currentLoadedSceneID).then((result) => {
+				if (result?.success) {
+					setActionResult({ result: "Success!", success: true });
+					showPopup(null);
+					router.push("/home");
+				}
+				else {
+					setActionResult({ result: result?.error ?? "An error occurred.", success: false });
+					showPopup(null);
+				}
+			});
+		}
+	}
+	useEffect(() => {
+		let timeout: ReturnType<typeof setTimeout>;
+		if (actionResult) {
+			actionResultAnimationControls.stop();
+			actionResultAnimationControls.start({
+				opacity: 1,
+				transition: { duration: 0 }
+			});
+			timeout = setTimeout(() => {
+				actionResultAnimationControls.start({
+					opacity: 0,
+					transition: { duration: 2 }
+				});
+			}, 2000);
+		}
+		return () => clearTimeout(timeout);
+	}, [actionResult]);
+
 
 	return (
 		<div className="h-full w-full text-gray-300/80 overflow-y-scroll scrollbar">
@@ -657,7 +918,7 @@ const Menu = () => {
 			</div>
 			<div className="border-b-2 border-[#0F151C] px-4 sm:px-7 py-5 space-y-5">
 				<p className="text-xs">ACCOUNT</p>
-				<div onClick={session ? () => { oauthClient.signOut(); setSession(null); } : signIn } className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
+				<div onClick={session ? signOut : showSigninPopup } className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
 					{ session === null ? 
 						<LogIn/>
 							:
@@ -666,17 +927,36 @@ const Menu = () => {
 					<p className="text-lg">{session === null ? "Sign In" : "Sign Out"}</p>
 				</div>
 			</div>
-			<div className="border-b-2 border-[#0F151C] px-4 sm:px-7 py-5 space-y-5">
-				<p className="text-xs">TOOLS</p>
-				<div className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
-					<Save />
-					<p className="text-lg">Save</p>
+			{
+				(ownsScene || !currentLoadedSceneID) &&
+				<div className="border-b-2 border-[#0F151C] px-4 sm:px-7 py-5 space-y-5">
+					<div className="flex items-center gap-3 h-[16px]">
+						<p className="text-xs">TOOLS</p>
+						{
+							actionResult &&
+							<motion.p animate={actionResultAnimationControls} className={`text-xs ${actionResult.success ? "text-green-500/80" : "text-red-500/80"}`}>{actionResult.result}</motion.p>
+						}
+					</div>
+					<div onClick={session ? save : showSigninPopup } className="flex gap-3 relative w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
+						<Save />
+						<p className="text-lg">Save</p>
+					</div>
+					{
+						!scenePublished &&
+						<div onClick={session ? publish : showSigninPopup} className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
+							<Upload />
+							<p className="text-lg">Publish</p>
+						</div>
+					}
+					{
+						currentLoadedSceneID &&
+						<div onClick={() => showPopup(<ConfirmationPopup onConfirmAction={onDeleteShader} confirmationText={`Delete ${currentLoadedSceneName}?`} onCloseAction={() => showPopup(null)}/>)} className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
+							<Trash />
+							<p className="text-lg">Delete</p>
+						</div>
+					}
 				</div>
-				<div className="flex gap-3 w-fit items-center cursor-pointer hover:scale-110 transition-all duration-300">
-					<Upload />
-					<p className="text-lg">Publish</p>
-				</div>
-			</div>
+			}
 
 		</div>
 	);
@@ -684,9 +964,11 @@ const Menu = () => {
 
 const WindowSelector = ({ windowState, setWindowState }: { windowState: WindowState, setWindowState: (state: WindowState) => void }) => {
 
+	const { currentLoadedSceneName, scenePublished } = useGlobal();
+
 	return (
-		<div className="w-full text-gray-300/60 border-t-2 border-[#0F151C] mt-auto">
-			<div className="mx-auto flex gap-3 w-fit p-3">
+		<div className="w-full text-gray-300/60 border-t-2 border-[#0F151C] mt-auto relative">
+			<div className="flex items-center justify-start gap-3 w-full p-3">
 				<motion.div
 					initial={{
 						scale: windowState === "menu" ? 1 : 0.75
@@ -726,6 +1008,91 @@ const WindowSelector = ({ windowState, setWindowState }: { windowState: WindowSt
 				>
 					<Settings className="cursor-pointer transition-all duration-300" onClick={() => setWindowState("config")} />
 				</motion.div>
+				{
+					scenePublished &&
+					<motion.div
+						initial={{
+							scale: windowState === "info" ? 1 : 0.75
+						}}
+						animate={{
+							scale: windowState === "info" ? 1 : 0.75
+						}}
+						transition={{
+							type: "spring"
+						}}
+					>
+						<InfoIcon className="cursor-pointer transition-all duration-300" onClick={() => setWindowState("info")} />
+					</motion.div>
+				}
+				{
+					currentLoadedSceneName &&
+					<div className="text-xs ml-auto">
+						Current scene: "{currentLoadedSceneName}"
+					</div>
+				}
+			</div>
+		</div>
+	);
+}
+
+const Info = () => {
+
+	const { scene } = useScene();
+
+	if (!scene) return;
+
+	return (
+		<div className="h-full w-full text-gray-300/80 overflow-y-scroll scrollbar">
+			<div className="h-full w-full text-gray-300/80 overflow-y-scroll scrollbar">
+				<div className="border-b-2 border-[#0F151C] px-3 sm:px-5 py-3 relative">
+					<div className=" flex items-center gap-3 justify-center">
+						<div className="relative">
+							<p className="text-[clamp(25px,4vw,40px)]">{scene.title}</p>
+						</div>
+						<div className="ml-auto p-2 flex gap-3 items-center flex-shrink-0">
+							<div className="w-12 h-12 rounded-full bg-center bg-cover" style={{ backgroundImage: `url(${scene.authorImage})` }} />
+							<div className="flex flex-col justify-center items-start tracking-wide">
+								<p className="text-xl">@{scene.authorName}</p>
+								<p className="opacity-70 text-sm">{scene.updatedOn}</p>
+							</div>
+						</div>
+					</div>
+					<div className="flex gap-2 items-center mt-1 ml-1 relative">
+						<p className="opacity-70 relative -translate-y-[1px]">1 like</p>
+						<div className="gap-2 flex group hover:scale-105 transition-all duration-300 cursor-pointer ease-in-out text-xs items-center px-2 py-1 rounded-xl border-2 border-[#151d27ff]">
+							<Heart size={13}/>
+							<p className="relative -translate-y-[1px]">Like</p>
+						</div>
+					</div>
+				</div>
+				<div className="pb-5">
+					{
+						scene.description &&
+						<div className="border-b-2 py-5 border-[#0F151C]">
+							<div className="px-3 sm:px-5 space-y-5">
+								<p className="text-xs">DESCRIPTION</p>
+								<p className="text-md">{scene.description}</p>
+							</div>
+						</div>
+					}
+					{
+						scene.tags && scene.tags.length > 0 &&
+						<div className="border-b-2 py-5 border-[#0F151C]">
+							<div className="px-3 sm:px-5 space-y-5">
+								<p className="text-xs">TAGS</p>
+								<div className="flex flex-wrap gap-2">
+									{
+										scene.tags.map((tag: string, index: number) => (
+											<span key={index} className="px-3 py-2 bg-gray-800/40 border border-[#0F151C] rounded-xl text-sm">
+												{tag}
+											</span>
+										))
+									}
+								</div>
+							</div>
+						</div>
+					}
+				</div>
 			</div>
 		</div>
 	);
@@ -733,75 +1100,121 @@ const WindowSelector = ({ windowState, setWindowState }: { windowState: WindowSt
 
 export default function Page() {
 
-	const { settings, setSettings, axisLength, setAxisLength } = useGlobal();
+	const { settings, setSettings, axisLength, setAxisLength, initialCameraDirection, initialCameraPosition, ownsScene, scenePublished } = useGlobal();
 	const { objects } = useObjects();
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
-	const [windowState, setWindowState] = useState<WindowState>("editor");
+	const orbitControlsRef = useRef<any>(null);
+	const [windowState, setWindowState] = useState<WindowState>(ownsScene || !scenePublished ? "editor" : "info");
+	const firstUpdate = useRef<boolean>(true);
+	const { scene } = useScene();
+	const searchParams = useSearchParams();
 
 	useLayoutEffect(() => {
 		window.dispatchEvent(new Event("resize"));
 	}, [settings.maximizedViewport]);
+
+	useEffect(() => {
+		if (!initialCameraPosition || !initialCameraDirection) return;
+		const controls = orbitControlsRef.current;
+		if (!controls) return;
+
+		controls.object.position.set(
+			initialCameraPosition.x,
+			initialCameraPosition.y,
+			initialCameraPosition.z
+		);
+		controls.target.set(
+			initialCameraDirection.x,
+			initialCameraDirection.y,
+			initialCameraDirection.z
+		);
+		controls.update();
+	}, [initialCameraPosition, initialCameraDirection]);
 
 	const variants = {
 		hover: {
 			height: 145
 		}
 	}
+	
+	useEffect(() => {
+		if (firstUpdate.current) {
+			setWindowState(ownsScene || !scenePublished ? "editor" : "info");
+			firstUpdate.current = false;
+		}
+	}, [ownsScene, scenePublished])
 
 	const states: Record<WindowState, ReactElement> = {
 		"editor": <EditorWindow/>,
 		"config": <Config/>,
-		"menu": <Menu/>
+		"menu": <Menu/>,
+		"info": <Info/>
 	}
 
 	return (
-		<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, ease: "easeInOut" }} className={`h-screen w-full overflow-hidden grid ${settings.maximizedViewport ? "landscape:grid-cols-[0fr_1fr] portrait:grid-rows-[0fr_1fr]" : "landscape:grid-cols-2 portrait:grid-rows-2"}  p-2 gap-1 bg-[#080B0F]`}>
-			<div className={`min-w-0 w-full relative order-1`}>
-				<div className="absolute top-2 left-2 flex gap-1 text-[#6B7280] z-10">
-					<Live />
-					<Reload />
-				</div>
-				<motion.div className="absolute bottom-2 right-2 z-10 flex gap-1" whileHover="hover">
-					<UIButton onClick={() => setSettings({ ...settings, axesHelper: !settings.axesHelper })} icon={<Axis3D />} />
-					<motion.div
-						className="absolute bottom-0 w-full pt-5 overflow-hidden"
-						initial={{
-							height: 0
-						}}
-						transition={{
-							duration: 0.7
-						}}
-						variants={variants}
-					>
-						<Slider value={axisLength} onChange={(num: number) => { setAxisLength(num) }}/>
-					</motion.div>
-				</motion.div>
-				<div className="absolute top-2 right-2 z-10 overflow-hidden">
-					<UIButton onClick={() => setSettings({ ...settings, maximizedViewport: !settings.maximizedViewport })} icon={<Fullscreen />} />
-				</div>
-				<Canvas 
-					ref={canvasRef} 
-					className="w-full rounded-2xl border-2 border-[#0F151C] bg-[#0B0F14]"
-				>
-					<color attach="background" args={["black"]} />
-					{
-						objects.map((item, key) => (
-							<Object3D object={item} key={key}/>
-						))
-					}
-					{settings.axesHelper && <axesHelper args={[axisLength]} />}
-					<OrbitControls />
-				</Canvas>
-			</div>
+		<>
 			{
-				settings.maximizedViewport ? <div /> : 
-					<div className="min-w-0 w-full relative h-full bg-[#0B0F14] border-2 border-[#0F151C] overflow-hidden flex flex-col rounded-2xl">
-						{states[windowState]}
-						<WindowSelector windowState={windowState} setWindowState={(state: WindowState) => setWindowState(state)}/>
+				(scene || !searchParams.get("id")) &&
+				<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15, ease: "easeInOut", duration: 0.5 }} className={`h-screen w-full overflow-hidden grid ${settings.maximizedViewport ? "landscape:grid-cols-[0fr_1fr] portrait:grid-rows-[0fr_1fr]" : "landscape:grid-cols-2 portrait:grid-rows-2"}  p-2 gap-1 bg-[#080B0F]`}>
+					<div className={`min-w-0 w-full relative order-1`}>
+						<div className="absolute top-2 left-2 flex gap-1 text-[#6B7280] z-10">
+							<Live />
+							<Reload />
+						</div>
+						<motion.div className="absolute bottom-2 right-2 z-10 flex gap-1" whileHover="hover">
+							<UIButton onClick={() => setSettings({ ...settings, axesHelper: !settings.axesHelper })} icon={<Axis3D />} />
+							<motion.div
+								className="absolute bottom-0 w-full pt-5 overflow-hidden"
+								initial={{
+									height: 0
+								}}
+								transition={{
+									duration: 0.7
+								}}
+								variants={variants}
+							>
+								<Slider value={axisLength} onChange={(num: number) => { setAxisLength(num) }}/>
+							</motion.div>
+						</motion.div>
+						<div className="absolute top-2 right-2 z-10 overflow-hidden">
+							<UIButton onClick={() => setSettings({ ...settings, maximizedViewport: !settings.maximizedViewport })} icon={<Fullscreen />} />
+						</div>
+						<div className="absolute bottom-2 left-2 z-10 overflow-hidden">
+							<UIButton onClick={() => { if (orbitControlsRef.current) orbitControlsRef.current.reset(); }} icon={<Camera />} />
+						</div>
+						<Canvas 
+							ref={canvasRef} 
+							className="w-full rounded-2xl border-2 border-[#0F151C] bg-[#0B0F14]"
+							camera={initialCameraPosition ? {
+								position: [initialCameraPosition.x, initialCameraPosition.y, initialCameraPosition.z]
+							} : undefined}
+						>
+							<color attach="background" args={["black"]} />
+							<UpdateCamera/>
+							{
+								objects.map((item, key) => (
+									<Object3D object={item} key={key}/>
+								))
+							}
+							{settings.axesHelper && <axesHelper args={[axisLength]} />}
+							<OrbitControls ref={orbitControlsRef} target={initialCameraDirection ? [
+								initialCameraDirection.x,
+								initialCameraDirection.y,
+								initialCameraDirection.z
+							] : undefined}/>
+						</Canvas>
 					</div>
-				
+					{
+						settings.maximizedViewport ? <div /> : 
+							<div className="min-w-0 w-full relative h-full bg-[#0B0F14] border-2 border-[#0F151C] overflow-hidden flex flex-col rounded-2xl">
+								{states[windowState]}
+								<WindowSelector windowState={windowState} setWindowState={(state: WindowState) => setWindowState(state)}/>
+							</div>
+						
+					}
+				</motion.div>
 			}
-		</motion.div>
+		</>
 	)
 }
 
